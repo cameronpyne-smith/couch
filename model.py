@@ -65,3 +65,10 @@ if __name__ == "__main__":
 
     q, k, v = torch.randn(3, 2, 6, 8, 64)
     print(torch.allclose(causal_attention(q, k, v), F.scaled_dot_product_attention(q, k, v, is_causal=True), atol=1e-6))
+
+    q2, k2, v2 = q.clone(), k.clone(), v.clone()
+    q2[..., 4:, :] += 1
+    k2[..., 4:, :] += 1
+    v2[..., 4:, :] += 1
+
+    print(torch.allclose(causal_attention(q, k, v)[..., :4, :], causal_attention(q2, k2, v2)[..., :4, :], atol=1e-6))

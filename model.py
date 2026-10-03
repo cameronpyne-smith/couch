@@ -43,6 +43,16 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.project_back(self.non_linearity(self.expand(x)))
 
+def causal_attention(query, key, value):
+    d = query.shape[-1]
+    scores = query @ key.transpose(-2, -1) / math.sqrt(d) # traspose turns (T, d) into (d, T). divide by sqrt(d) to 'normalise' the dot product so weighting isn't so skewed
+    T = query.shape[-2]
+    mask = torch.tril(torch.ones(T, T)) # tril = triangle lower, zeros above diagonal
+    scores = scores.masked_fill(mask == 0, float("-inf")) # -inf so exp = 0 weight
+    scores = scores - scores.amax(dim=-1, keepdim=True) # subtract largest score from the row, "per row" is dim=-1 
+    weights = torch.exp(scores)
+    weights = weights / weights.sum(dim=-1, keepdim=True)
+    return weights @ value
 
 if __name__ == "__main__":
     print(ModelConfig())
@@ -52,3 +62,6 @@ if __name__ == "__main__":
     print(mlp(x).shape)
     print(sum(p.numel() for p in mlp.parameters()))
     print(torch.allclose(GELU()(x), F.gelu(x, approximate="tanh")))
+
+    q, k, v = torch.randn(3, 2, 6, 8, 64)
+    print(torch.allclose(causal_attention(q, k, v), F.scaled_dot_product_attention(q, k, v, is_causal=True), atol=1e-6))

@@ -83,6 +83,20 @@ class LayerNorm(nn.Module):
         normalised = (x - mean) / torch.sqrt(variance + self.eps)
         return (normalised * self.gain) + self.bias
 
+class Block(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.attention = CausalSelfAttention(config) 
+        self.mlp = MLP(config)
+        self.layer_norm_1 = LayerNorm(config.n_embedding_dimension)
+        self.layer_norm_2 = LayerNorm(config.n_embedding_dimension)
+
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.attention(self.layer_norm_1(x))
+        x = x + self.mlp(self.layer_norm_2(x))
+        return x
+
 
 def causal_attention(query, key, value):
     head_dim = query.shape[-1]
@@ -142,4 +156,8 @@ if __name__ == "__main__":
 
     print(torch.allclose(LayerNorm(384)(x), F.layer_norm(x, (384,)), atol=1e-5))
 
+    block = Block(ModelConfig())
+    print(block(x).shape)
+    print(sum(p.numel() for p in block.parameters()))
+    print(((block(x) - x).abs().mean()) / x.abs().mean() * 100)
 

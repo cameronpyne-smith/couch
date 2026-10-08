@@ -21,13 +21,13 @@ class Linear(nn.Module):
         self.weight = nn.Parameter(torch.randn(out_features, in_features) * 0.02)
         self.bias = nn.Parameter(torch.zeros(out_features))
 
-    def forward(self, x):
-        return x @ self.weight.T + self.bias
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x @ self.weight.T + self.bias
 
 
 class GELU(nn.Module):
-    def forward(self, x):
-        return (
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return (
             0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * x**3)))
         )
 
@@ -44,8 +44,8 @@ class MLP(nn.Module):
             4 * config.n_embedding_dimension, config.n_embedding_dimension
         )
 
-    def forward(self, x):
-        return self.project_back(self.non_linearity(self.expand(x)))
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return self.project_back(self.non_linearity(self.expand(x)))
 
 
 class CausalSelfAttention(nn.Module):
@@ -57,7 +57,7 @@ class CausalSelfAttention(nn.Module):
         self.qkv_projection = Linear(C, 3 * C)
         self.output_projection = Linear(C, C)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.shape
         head_dim = C // self.config.n_head
         qkv = self.qkv_projection(x)
@@ -68,6 +68,20 @@ class CausalSelfAttention(nn.Module):
         out = causal_attention(query, key, value)
         out = out.transpose(1, 2).contiguous().view(B, T, C)
         return self.output_projection(out)
+
+
+class LayerNorm(nn.Module):
+    def __init__(self, n_features, eps=1e-5):
+        super().__init__()
+        self.gain = nn.Parameter(torch.ones(n_features))
+        self.bias = nn.Parameter(torch.zeros(n_features))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        mean = x.mean(dim=-1, keepdim=True)
+        variance = x.var(dim=-1, keepdim=True, unbiased=False)
+        normalised = (x - mean) / torch.sqrt(variance + self.eps)
+        return (normalised * self.gain) + self.bias
 
 
 def causal_attention(query, key, value):
@@ -125,3 +139,7 @@ if __name__ == "__main__":
     x2 = x.clone()
     x2[:, 4:, :] += 1
     print(torch.allclose(csa(x)[..., :4, :], csa(x2)[..., :4, :], atol=1e-6))
+
+    print(torch.allclose(LayerNorm(384)(x), F.layer_norm(x, (384,)), atol=1e-5))
+
+

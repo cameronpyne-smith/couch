@@ -97,6 +97,15 @@ class Block(nn.Module):
         return x
 
 
+class Embedding(nn.Module):
+    def __init__(self, num_embeddings, embedding_dim):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(num_embeddings, embedding_dim) * 0.02)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.weight[x] # x is tensor of ids, looks up the tensor for each id
+
+
 def causal_attention(query, key, value):
     head_dim = query.shape[-1]
     scores = (

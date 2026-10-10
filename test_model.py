@@ -9,12 +9,13 @@ from model import (
     CausalSelfAttention,
     LayerNorm,
     ModelConfig,
+    Embedding,
     causal_attention,
 )
 
 
 @pytest.fixture
-def config():
+def config() -> ModelConfig:
     return ModelConfig()
 
 
@@ -29,6 +30,10 @@ def qkv():
     torch.manual_seed(0)
     return torch.randn(3, 2, 6, 8, 64)
 
+@pytest.fixture
+def idx():
+    torch.manual_seed(0)
+    return torch.randint(0, 65, (2, 8))
 
 def parameter_count(module):
     return sum(p.numel() for p in module.parameters())
@@ -93,3 +98,17 @@ def test_block_parameter_count(config):
 def test_block_is_near_identity_at_init(config, x):
     relative_change = (Block(config)(x) - x).abs().mean() / x.abs().mean()
     assert relative_change < 0.5
+
+
+def test_embeddings_parameter_count(config: ModelConfig):
+    assert parameter_count(Embedding(config.vocab_size, config.n_embedding_dimension)) == 24960
+
+def test_embeddings_output_shape(config, idx):
+    assert Embedding(config.vocab_size, config.n_embedding_dimension)(idx).shape == (2, 8, 384)
+
+def test_embeddings_output_matches_torch(config, idx):
+    embedding = Embedding(config.vocab_size, config.n_embedding_dimension)
+    assert torch.allclose(embedding(idx), F.embedding(idx, embedding.weight), atol=1e-6)
+
+
+

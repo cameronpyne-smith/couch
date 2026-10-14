@@ -11,16 +11,17 @@ class ModelConfig:
     block_size: int = 256
     n_layer: int = 6
     n_head: int = 6
-    n_embedding_dimension: int = 384
+    n_embedding_dimension: int = 384 # C
 
 
 class Linear(nn.Module):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, out_features, bias=True):
         super().__init__()
         self.weight = nn.Parameter(torch.randn(out_features, in_features) * 0.02)
-        self.bias = nn.Parameter(torch.zeros(out_features))
+        self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.bias is None: return x @ self.weight.T
         return x @ self.weight.T + self.bias
 
 
@@ -105,6 +106,28 @@ class Embedding(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.weight[x] # x is tensor of ids, looks up the tensor for each id
 
+class GPT(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.config = config
+        self.token_embedding = Embedding(config.vocab_size, config.n_embedding_dimension)
+        self.position_embedding = Embedding(config.block_size, config.n_embedding_dimension)
+        self.blocks = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
+        self.final_norm = LayerNorm(config.n_embedding_dimension)
+        self.output_head = Linear(config.n_embedding_dimension, config.vocab_size, bias=False)
+        self.output_head.weight = self.token_embedding.weight
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, T = x.shape
+        token_vectors = self.token_embedding(x) 
+        positions = torch.arange(T, device=x.device)
+        position_vectors = self.position_embedding(positions)
+        residual_stream = token_vectors + position_vectors
+        for block in self.blocks:
+            residual_stream = block(residual_stream)
+        final_norm = self.final_norm(residual_stream)
+        head = self.output_head(final_norm)
+        return head
 
 def causal_attention(query, key, value):
     head_dim = query.shape[-1]

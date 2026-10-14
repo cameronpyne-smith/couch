@@ -4,12 +4,13 @@ import torch.nn.functional as F
 
 from model import (
     GELU,
+    GPT,
     MLP,
     Block,
     CausalSelfAttention,
+    Embedding,
     LayerNorm,
     ModelConfig,
-    Embedding,
     causal_attention,
 )
 
@@ -30,10 +31,12 @@ def qkv():
     torch.manual_seed(0)
     return torch.randn(3, 2, 6, 8, 64)
 
+
 @pytest.fixture
 def idx():
     torch.manual_seed(0)
     return torch.randint(0, 65, (2, 8))
+
 
 def parameter_count(module):
     return sum(p.numel() for p in module.parameters())
@@ -101,14 +104,41 @@ def test_block_is_near_identity_at_init(config, x):
 
 
 def test_embeddings_parameter_count(config: ModelConfig):
-    assert parameter_count(Embedding(config.vocab_size, config.n_embedding_dimension)) == 24960
+    assert (
+        parameter_count(Embedding(config.vocab_size, config.n_embedding_dimension))
+        == 24960
+    )
+
 
 def test_embeddings_output_shape(config, idx):
-    assert Embedding(config.vocab_size, config.n_embedding_dimension)(idx).shape == (2, 8, 384)
+    assert Embedding(config.vocab_size, config.n_embedding_dimension)(idx).shape == (
+        2,
+        8,
+        384,
+    )
+
 
 def test_embeddings_output_matches_torch(config, idx):
     embedding = Embedding(config.vocab_size, config.n_embedding_dimension)
     assert torch.allclose(embedding(idx), F.embedding(idx, embedding.weight), atol=1e-6)
 
+
+def test_gpt_parameter_count(config):
+    assert parameter_count(GPT(config)) == 10770816
+
+def test_gpt_logits_shape(config, idx):
+    assert GPT(config)(idx).shape == (2, 8, 65)
+
+def test_gpt_logits_tied_weights(config):
+    gpt = GPT(config)
+    assert gpt.token_embedding.weight is gpt.output_head.weight
+
+def test_gpt_logits_ignore_future_positions(config, idx):
+    gpt = GPT(config)
+    idx2 = idx.clone()
+    idx2[:, 4:] = (idx[:, 4:] + 1) % 65
+    logits1 = gpt(idx)
+    logits2 = gpt(idx2)
+    assert torch.allclose(logits1[:, :4, :], logits2[:, :4, :], atol=1e-6)
 
 

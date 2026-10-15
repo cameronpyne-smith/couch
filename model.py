@@ -11,7 +11,7 @@ class ModelConfig:
     block_size: int = 256
     n_layer: int = 6
     n_head: int = 6
-    n_embedding_dimension: int = 384 # C
+    n_embedding_dimension: int = 384  # C
 
 
 class Linear(nn.Module):
@@ -21,7 +21,8 @@ class Linear(nn.Module):
         self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.bias is None: return x @ self.weight.T
+        if self.bias is None:
+            return x @ self.weight.T
         return x @ self.weight.T + self.bias
 
 
@@ -104,30 +105,38 @@ class Embedding(nn.Module):
         self.weight = nn.Parameter(torch.randn(num_embeddings, embedding_dim) * 0.02)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.weight[x] # x is tensor of ids, looks up the tensor for each id
+        return self.weight[x]  # x is tensor of ids, looks up the tensor for each id
+
 
 class GPT(nn.Module):
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
-        self.token_embedding = Embedding(config.vocab_size, config.n_embedding_dimension)
-        self.position_embedding = Embedding(config.block_size, config.n_embedding_dimension)
+        self.token_embedding = Embedding(
+            config.vocab_size, config.n_embedding_dimension
+        )
+        self.position_embedding = Embedding(
+            config.block_size, config.n_embedding_dimension
+        )
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
         self.final_norm = LayerNorm(config.n_embedding_dimension)
-        self.output_head = Linear(config.n_embedding_dimension, config.vocab_size, bias=False)
+        self.output_head = Linear(
+            config.n_embedding_dimension, config.vocab_size, bias=False
+        )
         self.output_head.weight = self.token_embedding.weight
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T = x.shape
-        token_vectors = self.token_embedding(x) 
+        token_vectors = self.token_embedding(x)
         positions = torch.arange(T, device=x.device)
         position_vectors = self.position_embedding(positions)
         residual_stream = token_vectors + position_vectors
         for block in self.blocks:
             residual_stream = block(residual_stream)
-        final_norm = self.final_norm(residual_stream)
-        head = self.output_head(final_norm)
-        return head
+        normed = self.final_norm(residual_stream)
+        logits = self.output_head(normed)
+        return logits
+
 
 def causal_attention(query, key, value):
     head_dim = query.shape[-1]
@@ -145,3 +154,22 @@ def causal_attention(query, key, value):
     weights = torch.exp(scores)
     weights = weights / weights.sum(dim=-1, keepdim=True)
     return weights @ value
+
+
+# Loss = -mean( log_softmax(logits)[target] ) over every position.
+# Probability 1 on the true character gives 0; uniform guessing gives ln(65) ≈ 4.17.
+def cross_entropy(logits, targets):
+    log_probabilities = log_probs(logits)
+    true_character = log_probabilities.gather(dim=-1, index=targets.unsqueeze(-1))
+    return -true_character.mean()
+
+
+# log_softmax(z)[i] = z[i] - log( sum_j exp(z[j]) )
+# Subtracting m = max_j z[j] inside keeps exp from overflowing and cancels exactly:
+#                   = z[i] - m - log( sum_j exp(z[j] - m) )
+# Softmax is per position, so every reduction is over the vocab dim only (dim=-1).
+def log_probs(x):
+    max_logit = torch.amax(x, dim=-1, keepdim=True)
+    return x - (
+        max_logit + torch.log(torch.sum(torch.exp(x - max_logit), dim=-1, keepdim=True))
+    )

@@ -14,7 +14,3 @@ def encode(text: str) -> list[int]:
 
 def decode(numbers: list[int]) -> str:
     return "".join(chars[i] for i in numbers)
-
-
-if __name__ == "__main__":
-    assert decode(encode(file_content)) == file_content

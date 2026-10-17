@@ -1,14 +1,21 @@
-from tokenizer import encode, decode, file_content
-from model import ModelConfig
+from pathlib import Path
 
 import torch
 
-def load_data():
-    encoded_data = torch.tensor(encode(file_content), dtype=torch.long)
+from tokenizer import Tokenizer
+
+DEFAULT_DATA_PATH = Path.home() / "training-data" / "text" / "shakespeare.txt"
+
+
+def load_data(file_path=DEFAULT_DATA_PATH):
+    file_content = file_path.read_text()
+    tokenizer = Tokenizer(file_content)
+    encoded_data = torch.tensor(tokenizer.encode(file_content), dtype=torch.long)
     training_data_length = int(0.9 * len(encoded_data))
     training_data = encoded_data[:training_data_length]
     validation_data = encoded_data[training_data_length:]
-    return training_data, validation_data
+    return training_data, validation_data, tokenizer
+
 
 def get_batch(data, block_size, batch_size, device):
     offsets = torch.randint(len(data) - block_size - 1, (batch_size,))

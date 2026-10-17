@@ -38,6 +38,7 @@ def idx():
     torch.manual_seed(0)
     return torch.randint(0, 65, (2, 8))
 
+
 @pytest.fixture
 def targets():
     torch.manual_seed(1)
@@ -132,12 +133,15 @@ def test_embeddings_output_matches_torch(config, idx):
 def test_gpt_parameter_count(config):
     assert parameter_count(GPT(config)) == 10770816
 
+
 def test_gpt_logits_shape(config, idx):
     assert GPT(config)(idx).shape == (2, 8, 65)
+
 
 def test_gpt_logits_tied_weights(config):
     gpt = GPT(config)
     assert gpt.token_embedding.weight is gpt.output_head.weight
+
 
 def test_gpt_logits_ignore_future_positions(config, idx):
     gpt = GPT(config)
@@ -147,14 +151,18 @@ def test_gpt_logits_ignore_future_positions(config, idx):
     logits2 = gpt(idx2)
     assert torch.allclose(logits1[:, :4, :], logits2[:, :4, :], atol=1e-6)
 
+
 def test_cross_entropies_match(config, idx, targets):
     logits = GPT(config)(idx)
-    assert torch.allclose(cross_entropy(logits, targets), F.cross_entropy(logits.view(-1, 65), targets.view(-1)), atol=1e-5)
+    assert torch.allclose(
+        cross_entropy(logits, targets),
+        F.cross_entropy(logits.view(-1, 65), targets.view(-1)),
+        atol=1e-5,
+    )
+
 
 # -log(p_true) = _log(1/65) = ln(65) = 4.174
 def test_loss_at_init_is_near_uniform(config, idx, targets):
     logits = GPT(config)(idx)
     loss = cross_entropy(logits, targets).item()
     assert 4.0 < loss < 4.4
-
-

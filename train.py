@@ -20,11 +20,3 @@ def get_batch(data, block_size, batch_size, device):
     x = torch.stack(inputs).to(device)
     y = torch.stack(targets).to(device)
     return x, y
-
-if __name__ == "__main__":
-    training, validation = load_data()
-    x, y = get_batch(training, ModelConfig.block_size, 64, "cuda")
-    print(x.shape == y.shape == (64, 256))
-    print(torch.equal(x[:, 1:], y[:, :-1]))
-    print(decode(x[0].tolist()))
-

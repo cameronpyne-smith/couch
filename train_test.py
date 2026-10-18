@@ -28,8 +28,8 @@ def test_get_batch_targets_are_next_token(x, y):
 
 def test_loss_decreases_with_gradient_descent():
     torch.manual_seed(0)
-    training, _, tokenizer = load_data()
-    config = ModelConfig(vocab_size=tokenizer.vocab_size, n_layer=2, n_head=2, n_embedding_dimension=64, block_size=64)
+    training, _, tokeniser = load_data()
+    config = ModelConfig(vocab_size=tokeniser.vocab_size, n_layer=2, n_head=2, n_embedding_dimension=64, block_size=64)
     gpt = GPT(config)
     losses = []
     for _ in range(20):

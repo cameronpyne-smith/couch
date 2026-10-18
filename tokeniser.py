@@ -1,4 +1,4 @@
-class Tokenizer:
+class Tokeniser:
     def __init__(self, text):
         self.chars = sorted(set(text))
         self.vocab_size = len(self.chars)

@@ -1,8 +1,16 @@
-from model import ModelConfig, GPT, cross_entropy
-from train import get_batch, load_data
+from functools import partial
 
 import pytest
 import torch
+
+from model import GPT, ModelConfig, cross_entropy
+from train import get_batch, get_learning_rate, load_data
+
+WARM_UP_STEPS=10
+MAX_STEPS=110
+MAX_LEARNING_RATE=1.0
+MIN_LEARNING_RATE=0.1
+
 
 @pytest.fixture
 def batch():
@@ -10,26 +18,37 @@ def batch():
     x, y = get_batch(training_data, ModelConfig.block_size, 64, "cpu")
     return x, y
 
+
 @pytest.fixture
 def x(batch):
     x, _ = batch
     return x
+
 
 @pytest.fixture
 def y(batch):
     _, y = batch
     return y
 
+
 def test_get_batch_shape(x, y):
     assert x.shape == y.shape == (64, 256)
+
 
 def test_get_batch_targets_are_next_token(x, y):
     assert torch.equal(y, x + 1)
 
+
 def test_loss_decreases_with_gradient_descent():
     torch.manual_seed(0)
     training, _, tokeniser = load_data()
-    config = ModelConfig(vocab_size=tokeniser.vocab_size, n_layer=2, n_head=2, n_embedding_dimension=64, block_size=64)
+    config = ModelConfig(
+        vocab_size=tokeniser.vocab_size,
+        n_layer=2,
+        n_head=2,
+        n_embedding_dimension=64,
+        block_size=64,
+    )
     gpt = GPT(config)
     losses = []
     for _ in range(20):
@@ -46,6 +65,37 @@ def test_loss_decreases_with_gradient_descent():
 
     assert losses[-1] < losses[0]
     assert losses[-1] < 3.6
-        
 
 
+learning_rate = partial(
+    get_learning_rate,
+    warm_up_steps=WARM_UP_STEPS,
+    max_steps=MAX_STEPS,
+    max_learning_rate=MAX_LEARNING_RATE,
+    min_learning_rate=MIN_LEARNING_RATE,
+)
+
+
+def test_lr_starts_linear():
+    assert learning_rate(0) == MAX_LEARNING_RATE / WARM_UP_STEPS
+
+
+def test_lr_peaks_at_warm_up():
+    assert learning_rate(WARM_UP_STEPS) == pytest.approx(MAX_LEARNING_RATE)
+
+
+def test_lr_ends_at_min_lr():
+    assert learning_rate(MAX_STEPS) == MIN_LEARNING_RATE
+    assert learning_rate(MAX_STEPS + 10) == MIN_LEARNING_RATE
+
+
+def test_decay_midpoint_is_average_of_max_and_min():
+    midpoint = (WARM_UP_STEPS + MAX_STEPS) // 2
+    assert learning_rate(midpoint) == pytest.approx(
+        (MAX_LEARNING_RATE + MIN_LEARNING_RATE) / 2
+    )
+
+
+def test_lr_never_increases_after_warm_up():
+    rates = [learning_rate(step) for step in range(WARM_UP_STEPS, MAX_STEPS + 10)]
+    assert all(later <= earlier for earlier, later in zip(rates, rates[1:]))

@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import torch
@@ -27,3 +28,15 @@ def get_batch(data, block_size, batch_size, device):
     x = torch.stack(inputs).to(device)
     y = torch.stack(targets).to(device)
     return x, y
+
+
+def get_learning_rate(
+    step, warm_up_steps=100, max_steps=5000, max_learning_rate=1e-3, min_learning_rate=1e-4
+) -> float:
+    if step < warm_up_steps: # warmup
+        return max_learning_rate * (step + 1) / warm_up_steps
+    if step >= max_steps: # finished
+        return min_learning_rate
+    else: # cosine decay
+        progress = (step - warm_up_steps) / (max_steps - warm_up_steps)
+        return min_learning_rate + (max_learning_rate - min_learning_rate) * (1 + math.cos(math.pi * progress)) / 2

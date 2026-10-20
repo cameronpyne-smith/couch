@@ -42,12 +42,12 @@ def clip_gradients(params, max_norm):
         for p in params:
             if p.grad is not None:
                 grads.append(p.grad)
-        length = torch.stack([g.norm() for g in grads]).norm()
-        if length > max_norm:
+        norm = torch.sqrt(sum(((g**2).sum() for g in grads), torch.tensor(0.0)))
+        if norm > max_norm:
             for grad in grads:
-                grad *= max_norm / length
+                grad *= max_norm / norm
 
-        return length.item()
+        return norm.item()
 
 
 

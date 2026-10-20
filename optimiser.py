@@ -35,3 +35,19 @@ class AdamW:
                 v_hat = v / (1 - self.b2**self.t)
                 p -= self.learning_rate * m_hat / (torch.sqrt(v_hat) + self.epsilon)
                 p -= self.learning_rate * self.weight_decay * p
+
+def clip_gradients(params, max_norm):
+    grads = []
+    with torch.no_grad():
+        for p in params:
+            if p.grad is not None:
+                grads.append(p.grad)
+        length = torch.stack([g.norm() for g in grads]).norm()
+        if length > max_norm:
+            for grad in grads:
+                grad *= max_norm / length
+
+        return length.item()
+
+
+

@@ -4,12 +4,12 @@ import pytest
 import torch
 
 from model import GPT, ModelConfig, cross_entropy
-from train import get_batch, get_learning_rate, load_data
+from train import get_batch, get_learning_rate, load_data, train
 
-WARM_UP_STEPS=10
-MAX_STEPS=110
-MAX_LEARNING_RATE=1.0
-MIN_LEARNING_RATE=0.1
+WARM_UP_STEPS = 10
+MAX_STEPS = 110
+MAX_LEARNING_RATE = 1.0
+MIN_LEARNING_RATE = 0.1
 
 
 @pytest.fixture
@@ -99,3 +99,20 @@ def test_decay_midpoint_is_average_of_max_and_min():
 def test_lr_never_increases_after_warm_up():
     rates = [learning_rate(step) for step in range(WARM_UP_STEPS, MAX_STEPS + 10)]
     assert all(later <= earlier for earlier, later in zip(rates, rates[1:]))
+
+
+def test_train_saves(tmp_path):
+    torch.manual_seed(0)
+    config = ModelConfig(
+        vocab_size=65,
+        n_layer=2,
+        n_head=2,
+        n_embedding_dimension=64,
+        block_size=64,
+    )
+    assert not any(tmp_path.iterdir())
+    train(
+        config=config, max_steps=3, eval_interval=1, device="cpu", output_dir=tmp_path
+    )
+    assert len(list(tmp_path.glob("*/losses.json"))) == 1
+    assert len(list(tmp_path.glob("*/checkpoint.pt"))) == 1

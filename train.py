@@ -90,10 +90,11 @@ def save_checkpoint(model, config, tokeniser, step, path):
 
 
 def train(
-    max_steps=5000, batch_size=64, device="cuda", eval_interval=100, output_dir="./runs"
+    max_steps=5000, batch_size=64, device="cuda", eval_interval=100, output_dir="./runs", config=None
 ):
     training, validation, tokeniser = load_data()
-    config = ModelConfig(vocab_size=tokeniser.vocab_size)
+    if config is None: 
+        config = ModelConfig(vocab_size=tokeniser.vocab_size)
     max_norm = 1.0
     model = GPT(config).to(device)
     optimiser = AdamW(model.parameters())

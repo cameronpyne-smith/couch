@@ -1,8 +1,13 @@
+import dataclasses
+import json
 import math
+from datetime import datetime
 from pathlib import Path
 
 import torch
 
+from model import GPT, ModelConfig, cross_entropy
+from optimiser import AdamW, clip_gradients
 from tokeniser import Tokeniser
 
 DEFAULT_DATA_PATH = Path.home() / "training-data" / "text" / "shakespeare.txt"
@@ -31,12 +36,98 @@ def get_batch(data, block_size, batch_size, device):
 
 
 def get_learning_rate(
-    step, warm_up_steps=100, max_steps=5000, max_learning_rate=1e-3, min_learning_rate=1e-4
+    step,
+    warm_up_steps=100,
+    max_steps=5000,
+    max_learning_rate=1e-3,
+    min_learning_rate=1e-4,
 ) -> float:
-    if step < warm_up_steps: # warmup
+    if step < warm_up_steps:  # warmup
         return max_learning_rate * (step + 1) / warm_up_steps
-    if step >= max_steps: # finished
+    if step >= max_steps:  # finished
         return min_learning_rate
-    else: # cosine decay
+    else:  # cosine decay
         progress = (step - warm_up_steps) / (max_steps - warm_up_steps)
-        return min_learning_rate + (max_learning_rate - min_learning_rate) * (1 + math.cos(math.pi * progress)) / 2
+        return (
+            min_learning_rate
+            + (max_learning_rate - min_learning_rate)
+            * (1 + math.cos(math.pi * progress))
+            / 2
+        )
+
+
+def estimate_loss(model, data, config, batch_size, device, n_batches=20):
+    with torch.no_grad():
+        model.eval()
+        total_loss = 0.0
+        for _ in range(n_batches):
+            x, y = get_batch(data, config.block_size, batch_size, device)
+            logits = model(x)
+            loss = cross_entropy(logits, y)
+            total_loss += loss.item()
+        model.train()
+        return total_loss / n_batches
+
+def save(output_dir, stats, model, config, tokeniser, step):
+    directory = Path(output_dir) / datetime.now().strftime('%Y%m%d-%H%M%S')
+    directory.mkdir(parents=True, exist_ok=True)
+    log_losses(stats, directory)
+    save_checkpoint(model, config, tokeniser, step, directory)
+
+def log_losses(stats, path):
+    file_name = "losses.json"
+    file_path = Path(path) / file_name
+    file_path.write_text(json.dumps(stats, indent=2))
+
+def save_checkpoint(model, config, tokeniser, step, path):
+    file_name = "checkpoint.pt"
+    file_path = Path(path) / file_name
+    obj = {"state": model.state_dict(),
+           "config": dataclasses.asdict(config),
+           "tokeniser": tokeniser.chars,
+           "step": step}
+    torch.save(obj, file_path)
+
+
+def train(
+    max_steps=5000, batch_size=64, device="cuda", eval_interval=100, output_dir="./runs"
+):
+    training, validation, tokeniser = load_data()
+    config = ModelConfig(vocab_size=tokeniser.vocab_size)
+    max_norm = 1.0
+    model = GPT(config).to(device)
+    optimiser = AdamW(model.parameters())
+    stats = []
+    for step in range(max_steps):
+        lr = get_learning_rate(step, max_steps=max_steps)
+        if step % eval_interval == 0:
+            validation_average = estimate_loss(
+                model, validation, config, batch_size, device
+            )
+            training_average = estimate_loss(
+                model, training, config, batch_size, device
+            )
+            stats.append(
+                {
+                    "step": step,
+                    "train": training_average,
+                    "val": validation_average,
+                    "lr": lr,
+                }
+            )
+            print(
+                f"Step {step}, training: {training_average:.3f} validation: {validation_average:.3f}"
+            )
+        x, y = get_batch(training, config.block_size, batch_size, device)
+        logits = model(x)
+        loss = cross_entropy(logits, y)
+        loss.backward()
+        clip_gradients(model.parameters(), max_norm)
+        optimiser.learning_rate = lr
+        optimiser.step()
+        optimiser.zero_grad()
+    save(output_dir, stats, model, config, tokeniser, max_steps)
+
+
+if __name__ == "__main__":
+    train(max_steps=20, device="cuda", eval_interval=10)

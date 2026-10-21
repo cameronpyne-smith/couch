@@ -103,6 +103,7 @@ def test_lr_never_increases_after_warm_up():
 
 def test_train_saves(tmp_path):
     torch.manual_seed(0)
+    max_steps = 3
     config = ModelConfig(
         vocab_size=65,
         n_layer=2,
@@ -112,7 +113,13 @@ def test_train_saves(tmp_path):
     )
     assert not any(tmp_path.iterdir())
     train(
-        config=config, max_steps=3, eval_interval=1, device="cpu", output_dir=tmp_path
+        config=config,
+        max_steps=max_steps,
+        eval_interval=1,
+        device="cpu",
+        output_dir=tmp_path,
     )
     assert len(list(tmp_path.glob("*/losses.json"))) == 1
     assert len(list(tmp_path.glob("*/checkpoint.pt"))) == 1
+    checkpoint = torch.load(list(tmp_path.glob("*/checkpoint.pt"))[0])
+    assert checkpoint["step"] < max_steps

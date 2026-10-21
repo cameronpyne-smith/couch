@@ -68,37 +68,48 @@ def estimate_loss(model, data, config, batch_size, device, n_batches=20):
         model.train()
         return total_loss / n_batches
 
-def save(output_dir, stats, model, config, tokeniser, step):
-    directory = Path(output_dir) / datetime.now().strftime('%Y%m%d-%H%M%S')
+
+def make_directory(output_dir):
+    directory = Path(output_dir) / datetime.now().strftime("%Y%m%d-%H%M%S")
     directory.mkdir(parents=True, exist_ok=True)
-    log_losses(stats, directory)
-    save_checkpoint(model, config, tokeniser, step, directory)
+    return directory
+
 
 def log_losses(stats, path):
     file_name = "losses.json"
     file_path = Path(path) / file_name
     file_path.write_text(json.dumps(stats, indent=2))
 
+
 def save_checkpoint(model, config, tokeniser, step, path):
     file_name = "checkpoint.pt"
     file_path = Path(path) / file_name
-    obj = {"state": model.state_dict(),
-           "config": dataclasses.asdict(config),
-           "tokeniser": tokeniser.chars,
-           "step": step}
+    obj = {
+        "state": model.state_dict(),
+        "config": dataclasses.asdict(config),
+        "tokeniser": tokeniser.chars,
+        "step": step,
+    }
     torch.save(obj, file_path)
 
 
 def train(
-    max_steps=5000, batch_size=64, device="cuda", eval_interval=100, output_dir="./runs", config=None
+    max_steps=5000,
+    batch_size=64,
+    device="cuda",
+    eval_interval=100,
+    output_dir="./runs",
+    config=None,
 ):
+    directory = make_directory(output_dir)
     training, validation, tokeniser = load_data()
-    if config is None: 
+    if config is None:
         config = ModelConfig(vocab_size=tokeniser.vocab_size)
     max_norm = 1.0
     model = GPT(config).to(device)
     optimiser = AdamW(model.parameters())
     stats = []
+    lowest_validation_average = float("inf")
     for step in range(max_steps):
         lr = get_learning_rate(step, max_steps=max_steps)
         if step % eval_interval == 0:
@@ -108,6 +119,9 @@ def train(
             training_average = estimate_loss(
                 model, training, config, batch_size, device
             )
+            if validation_average < lowest_validation_average:
+                lowest_validation_average = validation_average
+                save_checkpoint(model, config, tokeniser, step, directory)
             stats.append(
                 {
                     "step": step,
@@ -127,8 +141,8 @@ def train(
         optimiser.learning_rate = lr
         optimiser.step()
         optimiser.zero_grad()
-    save(output_dir, stats, model, config, tokeniser, max_steps)
+    log_losses(stats, directory)
 
 
 if __name__ == "__main__":
-    train(max_steps=20, device="cuda", eval_interval=10)
+    train()

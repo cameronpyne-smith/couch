@@ -12,6 +12,7 @@ class ModelConfig:
     n_layer: int = 6
     n_head: int = 6
     n_embedding_dimension: int = 384  # C
+    dropout: float = 0.1
 
 
 class Linear(nn.Module):
@@ -44,9 +45,11 @@ class MLP(nn.Module):
         self.project_back = Linear(
             4 * config.n_embedding_dimension, config.n_embedding_dimension
         )
+        self.dropout = Dropout(self.config.dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.project_back(self.non_linearity(self.expand(x)))
+        result = self.project_back(self.non_linearity(self.expand(x)))
+        return self.dropout(result)
 
 
 class CausalSelfAttention(nn.Module):
@@ -57,6 +60,7 @@ class CausalSelfAttention(nn.Module):
         assert C % config.n_head == 0, "C must divide evenly by n_head"
         self.qkv_projection = Linear(C, 3 * C)
         self.output_projection = Linear(C, C)
+        self.dropout = Dropout(self.config.dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = x.shape
@@ -68,7 +72,7 @@ class CausalSelfAttention(nn.Module):
         value = value.view(B, T, self.config.n_head, head_dim).transpose(1, 2)
         out = causal_attention(query, key, value)
         out = out.transpose(1, 2).contiguous().view(B, T, C)
-        return self.output_projection(out)
+        return self.dropout(self.output_projection(out))
 
 
 class LayerNorm(nn.Module):
@@ -83,6 +87,21 @@ class LayerNorm(nn.Module):
         variance = x.var(dim=-1, keepdim=True, unbiased=False)
         normalised = (x - mean) / torch.sqrt(variance + self.eps)
         return (normalised * self.gain) + self.bias
+
+
+class Dropout(nn.Module):
+    def __init__(self, probability: float):
+        super().__init__()
+        self.p = probability
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.training or self.p == 0:
+            return x
+
+        mask = torch.rand_like(x) > self.p
+        dropped = mask * x
+        scaled = dropped / (1 - self.p)
+        return scaled
 
 
 class Block(nn.Module):
@@ -124,6 +143,7 @@ class GPT(nn.Module):
             config.n_embedding_dimension, config.vocab_size, bias=False
         )
         self.output_head.weight = self.token_embedding.weight
+        self.dropout = Dropout(self.config.dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T = x.shape
@@ -131,6 +151,7 @@ class GPT(nn.Module):
         positions = torch.arange(T, device=x.device)
         position_vectors = self.position_embedding(positions)
         residual_stream = token_vectors + position_vectors
+        residual_stream = self.dropout(residual_stream)
         for block in self.blocks:
             residual_stream = block(residual_stream)
         normed = self.final_norm(residual_stream)

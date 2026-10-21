@@ -18,6 +18,7 @@ def two_comparison_models():
         n_head=2,
         n_embedding_dimension=64,
         block_size=64,
+        dropout=0.0
     )
     model_1 = GPT(config)
     model_2 = copy.deepcopy(model_1)

@@ -8,6 +8,7 @@ from model import (
     MLP,
     Block,
     CausalSelfAttention,
+    Dropout,
     Embedding,
     LayerNorm,
     ModelConfig,
@@ -87,7 +88,7 @@ def test_attention_module_output_shape(config, x):
 
 
 def test_attention_module_ignores_future_positions(config, x):
-    attention = CausalSelfAttention(config)
+    attention = CausalSelfAttention(config).eval()
     x2 = x.clone()
     x2[:, 4:, :] += 1
     assert torch.allclose(attention(x)[:, :4, :], attention(x2)[:, :4, :], atol=1e-6)
@@ -144,7 +145,7 @@ def test_gpt_logits_tied_weights(config):
 
 
 def test_gpt_logits_ignore_future_positions(config, idx):
-    gpt = GPT(config)
+    gpt = GPT(config).eval()
     idx2 = idx.clone()
     idx2[:, 4:] = (idx[:, 4:] + 1) % 65
     logits1 = gpt(idx)
@@ -166,3 +167,14 @@ def test_loss_at_init_is_near_uniform(config, idx, targets):
     logits = GPT(config)(idx)
     loss = cross_entropy(logits, targets).item()
     assert 4.0 < loss < 4.4
+
+
+def test_dropout():
+    torch.manual_seed(0)
+    dropout = Dropout(0.5)
+    ones = torch.ones(100000)
+    result = dropout(ones)
+    assert result.mean().item() == pytest.approx(1, abs=0.01)
+    assert (result == 0).float().mean().item() == pytest.approx(0.5, abs=0.01)
+    dropout.eval()
+    assert torch.equal(dropout(ones), ones)

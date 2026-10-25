@@ -37,6 +37,6 @@ def generate(model, tokeniser, prompt, max_new_tokens, temperature=0.8, top_k=40
 if __name__ == "__main__":
     torch.manual_seed(0)
     model, tokeniser, step = load_model("runs/20261021-171312/checkpoint.pt")
-    print(generate(model, tokeniser, "To be or not", 200, 1.5, 1))
+    print(generate(model, tokeniser, "To be or not", 200, 0.8, 40))
     assert step == 900
 

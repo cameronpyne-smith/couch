@@ -1,9 +1,12 @@
+import argparse
+
 import torch
 
 from model import GPT, ModelConfig
 from tokeniser import Tokeniser
 
-def load_model(file_path: str, device = "cuda"):
+
+def load_model(file_path: str, device="cuda"):
     d = torch.load(file_path, weights_only=False)
     step = d["step"]
     config = ModelConfig(**d["config"])
@@ -13,15 +16,16 @@ def load_model(file_path: str, device = "cuda"):
     tokeniser = Tokeniser("".join(d["tokeniser"]))
     return (model, tokeniser, step)
 
+
 def generate(model, tokeniser, prompt, max_new_tokens, temperature=0.8, top_k=40):
     encoded_prompt = tokeniser.encode(prompt)
     device = next(model.parameters()).device
     ids = torch.tensor(encoded_prompt, dtype=torch.long, device=device).unsqueeze(0)
     with torch.no_grad():
         for _ in range(max_new_tokens):
-            context = ids[:, -model.config.block_size:]
-            logits = model(context) # (1, T, 65)
-            scores = logits[:, -1, :] # (1, 65)
+            context = ids[:, -model.config.block_size :]
+            logits = model(context)  # (1, T, 65)
+            scores = logits[:, -1, :]  # (1, 65)
             scores = scores / temperature
             options, _ = torch.topk(scores, top_k)
             threshold = options[:, -1:]
@@ -33,10 +37,24 @@ def generate(model, tokeniser, prompt, max_new_tokens, temperature=0.8, top_k=40
     return tokeniser.decode(ids[0].tolist())
 
 
-     
 if __name__ == "__main__":
-    torch.manual_seed(0)
-    model, tokeniser, step = load_model("runs/20261021-171312/checkpoint.pt")
-    print(generate(model, tokeniser, "To be or not", 200, 0.8, 40))
-    assert step == 900
-
+    parser = argparse.ArgumentParser()
+    parser.add_argument("checkpoint")
+    parser.add_argument("--prompt", default="To be or not", type=str)
+    parser.add_argument("--temperature", default=0.8, type=float)
+    parser.add_argument("--top-k", default=40, type=int)
+    parser.add_argument("--max-new-tokens", default=500, type=int)
+    parser.add_argument("--seed", default=0, type=int)
+    args = parser.parse_args()
+    torch.manual_seed(args.seed)
+    model, tokeniser, _ = load_model(args.checkpoint)
+    print(
+        generate(
+            model,
+            tokeniser,
+            args.prompt,
+            args.max_new_tokens,
+            args.temperature,
+            args.top_k,
+        )
+    )

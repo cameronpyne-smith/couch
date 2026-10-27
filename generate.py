@@ -22,11 +22,14 @@ def generate(model, tokeniser, prompt, max_new_tokens, temperature=0.8, top_k=40
     device = next(model.parameters()).device
     ids = torch.tensor(encoded_prompt, dtype=torch.long, device=device).unsqueeze(0)
     with torch.no_grad():
+        was_training = model.training
+        model.eval()
         for _ in range(max_new_tokens):
             context = ids[:, -model.config.block_size :]
             logits = model(context)  # (1, T, 65)
             scores = logits[:, -1, :]  # (1, 65)
             scores = scores / temperature
+            top_k = min(top_k, scores.shape[-1])
             options, _ = torch.topk(scores, top_k)
             threshold = options[:, -1:]
             mask = scores < threshold
@@ -34,6 +37,8 @@ def generate(model, tokeniser, prompt, max_new_tokens, temperature=0.8, top_k=40
             probs = torch.softmax(scores, dim=-1)
             winner = torch.multinomial(probs, num_samples=1)
             ids = torch.cat([ids, winner], dim=1)
+        if was_training:
+            model.train()
     return tokeniser.decode(ids[0].tolist())
 
 

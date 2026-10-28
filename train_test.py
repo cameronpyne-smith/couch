@@ -3,8 +3,10 @@ from functools import partial
 import pytest
 import torch
 
+from generate import load_model
 from model import GPT, ModelConfig, cross_entropy
-from train import get_batch, get_learning_rate, load_data, train
+from tokeniser import Tokeniser
+from train import get_batch, get_learning_rate, load_data, save_checkpoint, train
 
 WARM_UP_STEPS = 10
 MAX_STEPS = 110
@@ -123,3 +125,21 @@ def test_train_saves(tmp_path):
     assert len(list(tmp_path.glob("*/checkpoint.pt"))) == 1
     checkpoint = torch.load(list(tmp_path.glob("*/checkpoint.pt"))[0])
     assert checkpoint["step"] < max_steps
+
+
+def test_save_checkpoint_then_load_model_returns_input(tmp_path):
+    config = ModelConfig(
+        vocab_size=4, block_size=8, n_layer=1, n_head=1, n_embedding_dimension=8
+    )
+    model = GPT(config)
+    tokeniser = Tokeniser("abc\n")
+    save_checkpoint(model, config, tokeniser, 7, tmp_path)
+    loaded_model, loaded_tokeniser, step = load_model(
+        tmp_path / "checkpoint.pt", device="cpu"
+    )
+    assert step == 7
+    assert loaded_tokeniser.chars == tokeniser.chars
+    assert loaded_model.config == model.config
+    loaded_dict = loaded_model.state_dict()
+    for name, tensor in model.state_dict().items():
+        assert torch.equal(tensor, loaded_dict[name])

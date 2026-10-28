@@ -145,6 +145,7 @@ def train(
         optimiser.step()
         optimiser.zero_grad()
     log_losses(stats, directory)
+    return model, tokeniser
 
 
 if __name__ == "__main__":

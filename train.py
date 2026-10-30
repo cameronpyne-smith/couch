@@ -102,10 +102,10 @@ def train(
     eval_interval=100,
     output_dir="./runs",
     config=None,
-    input_data_path="training-data/text/shakespeare.txt",
+    input_data_path=DEFAULT_DATA_PATH,
 ):
     directory = make_directory(output_dir)
-    data_path = Path.home() / input_data_path
+    data_path = Path(input_data_path)
     training, validation, tokeniser = load_data(data_path)
     if config is None:
         config = ModelConfig(vocab_size=tokeniser.vocab_size)
@@ -153,7 +153,8 @@ def train(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input-data-path", default="training-data/text/shakespeare.txt", type=str)
-    parser.add_argument("--output-dir", default="./output", type=str)
+    parser.add_argument("--input-data-path", default=DEFAULT_DATA_PATH, type=str)
+    parser.add_argument("--output-dir", default="./runs", type=str)
+    parser.add_argument("--max-steps", default=5000, type=int)
     args = parser.parse_args()
-    train(input_data_path=args.input_data_path, output_dir=args.output_dir)
+    train(input_data_path=args.input_data_path, output_dir=args.output_dir, max_steps=args.max_steps)

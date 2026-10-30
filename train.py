@@ -1,3 +1,4 @@
+import argparse
 import dataclasses
 import json
 import math
@@ -101,9 +102,11 @@ def train(
     eval_interval=100,
     output_dir="./runs",
     config=None,
+    input_data_path="training-data/text/shakespeare.txt",
 ):
     directory = make_directory(output_dir)
-    training, validation, tokeniser = load_data()
+    data_path = Path.home() / input_data_path
+    training, validation, tokeniser = load_data(data_path)
     if config is None:
         config = ModelConfig(vocab_size=tokeniser.vocab_size)
     max_norm = 1.0
@@ -149,4 +152,8 @@ def train(
 
 
 if __name__ == "__main__":
-    train()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input-data-path", default="training-data/text/shakespeare.txt", type=str)
+    parser.add_argument("--output-dir", default="./output", type=str)
+    args = parser.parse_args()
+    train(input_data_path=args.input_data_path, output_dir=args.output_dir)

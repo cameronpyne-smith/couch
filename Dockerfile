@@ -13,6 +13,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-install-project && rm /usr/local/bin/uv
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY train.py model.py optimiser.py tokeniser.py generate.py ./
 RUN python -m compileall -q /app
 

@@ -2,23 +2,17 @@ FROM python:3.14-slim
 
 LABEL org.opencontainers.image.source=https://github.com/cameronpyne-smith/couch
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.14 /uv /usr/local/bin/uv
-
-ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
-    UV_PYTHON_DOWNLOADS=never \
-    UV_COMPILE_BYTECODE=True \
-    UV_NO_CACHE=True
-
 WORKDIR /app
 COPY pyproject.toml uv.lock .python-version ./
-RUN uv sync --frozen --no-dev --no-install-project && rm /usr/local/bin/uv
+RUN --mount=type=bind,from=ghcr.io/astral-sh/uv:0.11.14,source=/uv,target=/usr/local/bin/uv \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    uv sync --frozen --no-dev --no-install-project --no-install-package triton \
+        --no-python-downloads --compile-bytecode --no-cache
 
 COPY train.py model.py optimiser.py tokeniser.py generate.py ./
-RUN python -m compileall -q /app
 
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=True \
-    PYTHONDONTWRITEBYTECODE=True \
     TORCH_DISABLE_NATIVE_JIT=1 \
     HOME=/tmp
 

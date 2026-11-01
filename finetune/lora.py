@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 
+from model import Linear
+from model_test import parameter_count
+
 
 # Linear computes x @ W.T + b, full fine-tuning would update every number, LorRA freezes W and learns a correction B @ A beside it.
 class LoRALinear(nn.Module):
@@ -16,3 +19,13 @@ class LoRALinear(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.base(x) + (x @ self.A.T @ self.B.T) * self.scale
+
+def apply_lora(model, rank, alpha, match):
+    def is_match(name, module):
+        return isinstance(module, Linear) and name.rsplit(".", 1)[-1] in match
+
+    pairs = [(name, module) for name, module in model.named_modules() if is_match(name, module)]
+    for name, module in pairs:
+        parent_path, _, attribute = name.rpartition(".")
+        parent = model.get_submodule(parent_path) if parent_path else model
+        setattr(parent, attribute, LoRALinear(module, rank, alpha))

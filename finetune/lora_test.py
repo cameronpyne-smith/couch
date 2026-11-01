@@ -1,8 +1,10 @@
+from typing import cast
+
 import torch
 import pytest
 
-from model import Linear
-from finetune.lora import LoRALinear
+from model import GPT, Block, Linear, ModelConfig
+from finetune.lora import LoRALinear, apply_lora
 
 @pytest.fixture
 def lora():
@@ -32,3 +34,11 @@ def test_training_only_moves_A_and_B(lora, x):
     lora(x).sum().backward()
     assert lora.base.weight.grad is None
     assert lora.B.grad is not None
+
+def test_apply_lora_wraps_only_matched_linears():
+    model = GPT(ModelConfig(vocab_size=4, block_size=8, n_layer=2, n_head=1, n_embedding_dimension=8))
+    apply_lora(model, rank=2, alpha=2, match=["qkv_projection", "expand"])
+    block = cast(Block, model.blocks[0])
+    assert isinstance(block.attention.qkv_projection, LoRALinear)
+    assert isinstance(block.mlp.project_back, Linear)
+    assert sum(isinstance(m, LoRALinear) for m in model.modules()) == 4

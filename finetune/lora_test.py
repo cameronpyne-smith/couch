@@ -3,7 +3,7 @@ from typing import cast
 import pytest
 import torch
 
-from finetune.lora import LoRALinear, apply_lora
+from finetune.lora import LoRALinear, apply_lora, merge_lora
 from model import GPT, Block, Linear, ModelConfig
 
 
@@ -78,3 +78,21 @@ def test_merged_linear_and_wrapper_match(lora, x):
     merged = lora.merge()
     assert torch.allclose(output, merged(x), atol=1e-6)
 
+def test_merge_lora_contains_no_LoRALinear(model):
+    apply_lora(model, rank=2, alpha=2, match=["qkv_projection", "expand"])
+    merge_lora(model)
+    assert sum(isinstance(m, LoRALinear) for m in model.modules()) == 0
+
+def test_logits_on_fixed_input_are_unchanged_by_merge_lora(model):
+    apply_lora(model, rank=2, alpha=2, match=["qkv_projection", "expand"])
+    modules = [m for m in model.modules() if isinstance(m, LoRALinear)]
+    with torch.no_grad():
+        for module in modules:
+            module.B.fill_(1.0)
+    x = torch.randint(0, 4, (1, 8))
+    model.eval()
+    logits = model.forward(x)
+    merge_lora(model)
+    assert torch.allclose(logits, model.forward(x), atol=1e-6)
+
+    

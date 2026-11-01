@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 from model import Linear
-from model_test import parameter_count
 
 
 # Linear computes x @ W.T + b, full fine-tuning would update every number, LorRA freezes W and learns a correction B @ A beside it.
@@ -19,6 +18,13 @@ class LoRALinear(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.base(x) + (x @ self.A.T @ self.B.T) * self.scale
+    
+    # x @ A.T @ B.T = x @ (B @ A).T
+    def merge(self):
+        with torch.no_grad():
+            self.base.weight += (self.B @ self.A) * self.scale
+        return self.base
+
 
 def apply_lora(model, rank, alpha, match):
     model.requires_grad_(False) # Freeze model
@@ -32,3 +38,4 @@ def apply_lora(model, rank, alpha, match):
         parent = model.get_submodule(parent_path) if parent_path else model
         setattr(parent, attribute, LoRALinear(module, rank, alpha))
     return [p for p in model.parameters() if p.requires_grad]
+

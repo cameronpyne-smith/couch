@@ -71,3 +71,10 @@ def test_logits_unchanged_at_init(model):
         logits2 = model.forward(x)
         assert torch.equal(logits, logits2)
 
+def test_merged_linear_and_wrapper_match(lora, x):
+    with torch.no_grad():
+        lora.B.fill_(1.0)
+    output = lora(x)
+    merged = lora.merge()
+    assert torch.allclose(output, merged(x), atol=1e-6)
+

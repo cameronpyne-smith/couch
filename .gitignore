@@ -4,3 +4,5 @@ runs/
 
 *.pt
 *.md
+*.gguf
+*.safetensors

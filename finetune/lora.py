@@ -21,6 +21,8 @@ class LoRALinear(nn.Module):
         return self.base(x) + (x @ self.A.T @ self.B.T) * self.scale
 
 def apply_lora(model, rank, alpha, match):
+    model.requires_grad_(False) # Freeze model
+
     def is_match(name, module):
         return isinstance(module, Linear) and name.rsplit(".", 1)[-1] in match
 
@@ -29,3 +31,4 @@ def apply_lora(model, rank, alpha, match):
         parent_path, _, attribute = name.rpartition(".")
         parent = model.get_submodule(parent_path) if parent_path else model
         setattr(parent, attribute, LoRALinear(module, rank, alpha))
+    return [p for p in model.parameters() if p.requires_grad]

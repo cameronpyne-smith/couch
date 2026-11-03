@@ -12,8 +12,8 @@ class LoRALinear(nn.Module):
         self.base = base
         out_features = self.base.weight.shape[0]
         in_features = self.base.weight.shape[1]
-        self.A = nn.Parameter(torch.randn(rank, in_features) / in_features**0.5)
-        self.B = nn.Parameter(torch.zeros((out_features, rank)))
+        self.A = nn.Parameter(torch.randn(rank, in_features, device=base.weight.device) / in_features**0.5)
+        self.B = nn.Parameter(torch.zeros((out_features, rank), device=base.weight.device))
         self.scale = alpha / rank
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

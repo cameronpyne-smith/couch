@@ -1,10 +1,12 @@
 import json
+import subprocess
 from collections import Counter
 from pathlib import Path
 
 
 GOLDEN = Path.home() / "code" / "reviewdo" / "bench" / "golden"
 EXPORT = Path.home() / "training-data" / "code" / "pr-reviews"
+CLONES = Path.home() / "code" / "remundo"
 VERDICTS = ("valid", "invalid")
 
 
@@ -34,8 +36,24 @@ def load_records():
     return records
 
 
+def read_file_at_commit(record):
+    clone = CLONES / record["repo"].split("/", 1)[1]
+    finding = record["finding"]
+    result = subprocess.run(
+        ["git", "-C", str(clone), "show", f"{finding['commit']}:{finding['path']}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
+
+
 if __name__ == "__main__":
     records = load_records()
     print("by verdict", Counter(r["finding"]["verdict"] for r in records))
     print("by label source", Counter(r["finding"]["labelled"].split(":")[0] for r in records))
     print("without diff", sum(r["diff"] is None for r in records))
+
+    example = next(r for r in records if r["repo"].endswith("Pricing.Employee") and r["number"] == 13)
+    lines = read_file_at_commit(example).splitlines()
+    print(example["finding"]["line"], lines[example["finding"]["line"] - 1])

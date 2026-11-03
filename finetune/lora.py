@@ -39,3 +39,13 @@ def apply_lora(model, rank, alpha, match):
         setattr(parent, attribute, LoRALinear(module, rank, alpha))
     return [p for p in model.parameters() if p.requires_grad]
 
+
+def merge_lora(model):
+    def is_match(name, module):
+        return isinstance(module, LoRALinear)
+
+    pairs = [(name, module) for name, module in model.named_modules() if is_match(name, module)]
+    for name, module in pairs:
+        parent_path, _, attribute = name.rpartition(".")
+        parent = model.get_submodule(parent_path) if parent_path else model
+        setattr(parent, attribute, module.merge())

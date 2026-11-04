@@ -1,4 +1,6 @@
 import json
+import random
+import re
 import subprocess
 from collections import Counter
 from pathlib import Path
@@ -30,6 +32,13 @@ TYPE_NODES = {
     "ts": ("class_declaration", "abstract_class_declaration", "interface_declaration", "program"),
 }
 MAX_TYPE_LINES = 120
+MAX_PROMPT_CHARS = 16_000
+LINE_REFERENCE = re.compile(r"\blines? \d+", re.IGNORECASE)
+SYSTEM = (
+    "You are reviewing one function from a pull request. A reviewer has raised a finding against it. "
+    "Decide whether the finding is valid: a real problem in this code that the author should fix. "
+    "Answer with one word, valid or invalid."
+)
 
 
 def load_records():
@@ -138,11 +147,31 @@ def locate(record):
 
 
 def render(text, span, numbered=True):
-    lines = text.splitlines()
+    lines = text.split("\n")
     start, end = span
     if numbered:
         return "\n".join(f"{n + 1:5d}   {lines[n]}" for n in range(start, end + 1))
     return "\n".join(lines[start : end + 1])
+
+
+def build_example(record, max_prompt_chars=MAX_PROMPT_CHARS):
+    finding = record["finding"]
+    style = random.Random(finding["id"])
+    numbered = style.random() < 0.5 or LINE_REFERENCE.search(finding["body"]) is not None
+    unit = render(record["text"], record["span"], numbered=numbered)
+    header = f"### {finding['path']}\n" if style.random() < 0.5 else ""
+    prompt = f"{header}{unit}\n\nFinding:\n{finding['body']}"
+    if len(prompt) > max_prompt_chars:
+        return None
+    return {
+        "system": SYSTEM,
+        "prompt": prompt,
+        "answer": finding["verdict"],
+        "labelled": finding["labelled"],
+        "repo": record["repo"],
+        "number": record["number"],
+        "reviewed_at": record["reviewed_at"],
+    }
 
 
 if __name__ == "__main__":
@@ -154,5 +183,10 @@ if __name__ == "__main__":
     print("located", Counter(locate(r) for r in records))
     print("by language", Counter((LANGUAGES.get(Path(r["finding"]["path"]).suffix), "span" in r) for r in records))
 
-    example = next(r for r in records if r["repo"].endswith("Pricing.Employee") and r["number"] == 13)
-    print(render(example["text"], example["span"]))
+    examples = [build_example(r) for r in records if "span" in r]
+    print("too long", sum(e is None for e in examples))
+    examples = [e for e in examples if e is not None]
+    for e in random.Random(0).sample(examples, 3):
+        print("=" * 80)
+        print(e["prompt"])
+        print("-> " + e["answer"], e["labelled"], e["repo"], e["number"])

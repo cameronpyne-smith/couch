@@ -12,7 +12,10 @@ from tree_sitter import Language, Parser
 
 
 GOLDEN = Path.home() / "code" / "reviewdo" / "bench" / "golden"
+SMOKE = Path.home() / "code" / "reviewdo" / "bench" / "smoke.json"
 EXPORT = Path.home() / "training-data" / "code" / "pr-reviews"
+OUTPUT = Path.home() / "training-data" / "code" / "pr-reviews-verifier"
+VAL_FRACTION = 0.15
 CLONES = Path.home() / "code" / "remundo"
 VERDICTS = ("valid", "invalid")
 LANGUAGES = {".cs": "cs", ".ts": "ts", ".js": "ts", ".mjs": "ts", ".svelte": "svelte"}
@@ -174,6 +177,40 @@ def build_example(record, max_prompt_chars=MAX_PROMPT_CHARS):
     }
 
 
+def split_examples(examples, val_fraction=VAL_FRACTION):
+    smoke = {(entry["repo"], entry["number"]) for entry in json.loads(SMOKE.read_text())}
+    by_pr = {}
+    for example in examples:
+        by_pr.setdefault((example["repo"], example["number"]), []).append(example)
+    ordered = sorted(by_pr, key=lambda pr: by_pr[pr][0]["reviewed_at"])
+    val_count = round(len(ordered) * val_fraction)
+    splits = {"train": [], "val": [], "smoke": []}
+    for index, pr in enumerate(ordered):
+        if pr in smoke:
+            name = "smoke"
+        elif index >= len(ordered) - val_count:
+            name = "val"
+        else:
+            name = "train"
+        splits[name].extend(by_pr[pr])
+    return splits
+
+
+def write_jsonl(path, examples):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as handle:
+        for example in examples:
+            handle.write(json.dumps(example) + "\n")
+
+
+def describe(name, examples):
+    prs = {(e["repo"], e["number"]) for e in examples}
+    dates = sorted(e["reviewed_at"][:10] for e in examples)
+    print(name, len(examples), "examples from", len(prs), "PRs", dates[0] if dates else "", "to", dates[-1] if dates else "")
+    print("  verdict", dict(Counter(e["answer"] for e in examples)))
+    print("  labelled", dict(Counter(e["labelled"].split(":")[0] for e in examples)))
+
+
 if __name__ == "__main__":
     records = load_records()
     print("by verdict", Counter(r["finding"]["verdict"] for r in records))
@@ -190,3 +227,8 @@ if __name__ == "__main__":
         print("=" * 80)
         print(e["prompt"])
         print("-> " + e["answer"], e["labelled"], e["repo"], e["number"])
+
+    splits = split_examples(examples)
+    for name, split in splits.items():
+        describe(name, split)
+        write_jsonl(OUTPUT / f"{name}.jsonl", split)

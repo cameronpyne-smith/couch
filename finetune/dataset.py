@@ -4,6 +4,8 @@ from collections import Counter
 from pathlib import Path
 
 import tree_sitter_c_sharp
+import tree_sitter_svelte
+import tree_sitter_typescript
 from tree_sitter import Language, Parser
 
 
@@ -11,12 +13,21 @@ GOLDEN = Path.home() / "code" / "reviewdo" / "bench" / "golden"
 EXPORT = Path.home() / "training-data" / "code" / "pr-reviews"
 CLONES = Path.home() / "code" / "remundo"
 VERDICTS = ("valid", "invalid")
-PARSERS = {".cs": Parser(Language(tree_sitter_c_sharp.language()))}
-FUNCTION_NODES = {
-    ".cs": ("method_declaration", "constructor_declaration", "local_function_statement", "property_declaration"),
+LANGUAGES = {".cs": "cs", ".ts": "ts", ".js": "ts", ".mjs": "ts", ".svelte": "svelte"}
+PARSERS = {
+    "cs": Parser(Language(tree_sitter_c_sharp.language())),
+    "ts": Parser(Language(tree_sitter_typescript.language_typescript())),
+    "svelte": Parser(Language(tree_sitter_svelte.language())),
 }
+FUNCTION_NODES = {
+    "cs": ("method_declaration", "constructor_declaration", "local_function_statement", "property_declaration"),
+    "ts": ("function_declaration", "method_definition", "arrow_function", "function_expression"),
+}
+ASSIGNED_ONLY = ("arrow_function", "function_expression")
+DECLARATION_WRAPPERS = ("variable_declarator", "lexical_declaration", "export_statement")
 TYPE_NODES = {
-    ".cs": ("class_declaration", "record_declaration", "struct_declaration", "interface_declaration", "enum_declaration", "compilation_unit"),
+    "cs": ("class_declaration", "record_declaration", "struct_declaration", "interface_declaration", "enum_declaration", "compilation_unit"),
+    "ts": ("class_declaration", "abstract_class_declaration", "interface_declaration", "program"),
 }
 MAX_TYPE_LINES = 120
 
@@ -60,31 +71,65 @@ def read_file_at_commit(record):
     return result.stdout
 
 
-def enclosing_function(text, line, suffix):
-    tree = PARSERS[suffix].parse(text.encode())
-    row = line - 1
-    node = tree.root_node.descendant_for_point_range((row, 0), (row, 0))
+def is_function(node, language):
+    if node.type not in FUNCTION_NODES[language]:
+        return False
+    if node.type in ASSIGNED_ONLY:
+        return node.parent.type == "variable_declarator"
+    return True
+
+
+def enclosing_in_tree(root, row, language):
+    node = root.descendant_for_point_range((row, 0), (row, 0))
     fallback = None
-    while node is not None and node.type not in FUNCTION_NODES[suffix]:
-        if fallback is None and node.type in TYPE_NODES[suffix]:
+    while node is not None and not is_function(node, language):
+        if fallback is None and node.type in TYPE_NODES[language]:
             fallback = node
         node = node.parent
     if node is None:
         node = fallback
     if node is None or node.end_point.row - node.start_point.row >= MAX_TYPE_LINES:
         return None
+    while node.parent is not None and node.parent.type in DECLARATION_WRAPPERS:
+        node = node.parent
     return node.start_point.row, node.end_point.row
 
 
+def enclosing_in_svelte(source, root, row):
+    for element in root.children:
+        if element.type != "script_element":
+            continue
+        script = next(child for child in element.children if child.type == "raw_text")
+        if not script.start_point.row <= row <= script.end_point.row:
+            continue
+        offset = script.start_point.row
+        inner = PARSERS["ts"].parse(source[script.start_byte : script.end_byte])
+        span = enclosing_in_tree(inner.root_node, row - offset, "ts")
+        if span is not None:
+            return span[0] + offset, span[1] + offset
+    if root.end_point.row - root.start_point.row >= MAX_TYPE_LINES:
+        return None
+    return root.start_point.row, root.end_point.row
+
+
+def enclosing_function(text, line, language):
+    source = text.encode()
+    root = PARSERS[language].parse(source).root_node
+    row = line - 1
+    if language == "svelte":
+        return enclosing_in_svelte(source, root, row)
+    return enclosing_in_tree(root, row, language)
+
+
 def locate(record):
-    suffix = Path(record["finding"]["path"]).suffix
-    if suffix not in PARSERS:
+    language = LANGUAGES.get(Path(record["finding"]["path"]).suffix)
+    if language is None:
         return "no language"
     try:
         text = read_file_at_commit(record)
     except subprocess.CalledProcessError:
         return "no file"
-    span = enclosing_function(text, record["finding"]["line"], suffix)
+    span = enclosing_function(text, record["finding"]["line"], language)
     if span is None:
         return "no function"
     record["text"] = text
@@ -107,6 +152,7 @@ if __name__ == "__main__":
     print("without diff", sum(r["diff"] is None for r in records))
 
     print("located", Counter(locate(r) for r in records))
+    print("by language", Counter((LANGUAGES.get(Path(r["finding"]["path"]).suffix), "span" in r) for r in records))
 
     example = next(r for r in records if r["repo"].endswith("Pricing.Employee") and r["number"] == 13)
     print(render(example["text"], example["span"]))

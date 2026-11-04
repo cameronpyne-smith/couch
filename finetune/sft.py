@@ -1,14 +1,19 @@
+import argparse
 import json
 import random
+import time
 from pathlib import Path
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from finetune.lora import apply_lora
+from finetune.lora import apply_lora, save_lora_adapter
+from optimiser import AdamW, clip_gradients
+from train import get_learning_rate, log_losses, make_directory
 
 MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 DATA = Path.home() / "training-data" / "code" / "pr-reviews-verifier"
+RUNS = DATA / "runs"
 IGNORE = -100
 PROJECTIONS = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
 
@@ -27,9 +32,12 @@ def encode(example, tokeniser):
     return prompt_ids + answer_ids, [IGNORE] * len(prompt_ids) + answer_ids
 
 
-def make_batches(encoded, batch_size, seed):
-    ordered = sorted(encoded, key=lambda pair: len(pair[0]))
-    batches = [ordered[i : i + batch_size] for i in range(0, len(ordered), batch_size)]
+def make_batches(encoded, max_tokens, seed):
+    batches = [[]]
+    for pair in sorted(encoded, key=lambda pair: len(pair[0])):
+        if batches[-1] and (len(batches[-1]) + 1) * len(pair[0]) > max_tokens:
+            batches.append([])
+        batches[-1].append(pair)
     random.Random(seed).shuffle(batches)
     return batches
 
@@ -48,38 +56,91 @@ def load_model(rank, alpha, device="cuda"):
     return model, trainable
 
 
-if __name__ == "__main__":
+def to_device(batch, pad_id, device):
+    return tuple(tensor.to(device) for tensor in collate(batch, pad_id))
+
+
+def evaluate(model, batches, pad_id, device):
+    model.eval()
+    total = 0.0
+    with torch.no_grad():
+        for batch in batches:
+            input_ids, attention_mask, labels = to_device(batch, pad_id, device)
+            total += model(input_ids=input_ids, attention_mask=attention_mask, labels=labels).loss.item()
+    model.train()
+    return total / len(batches)
+
+
+def train(args):
+    device = "cuda"
     tokeniser = AutoTokenizer.from_pretrained(MODEL)
-    train = load_examples(DATA / "train.jsonl")
+    pad_id = tokeniser.pad_token_id
+    train_encoded = [encode(example, tokeniser) for example in load_examples(DATA / "train.jsonl")]
+    val_batches = make_batches([encode(example, tokeniser) for example in load_examples(DATA / "val.jsonl")], args.max_tokens, 0)
+    batches_per_epoch = len(make_batches(train_encoded, args.max_tokens, 0))
+    max_steps = args.epochs * batches_per_epoch // args.accumulation
 
-    ids, labels = encode(train[0], tokeniser)
-    masked = sum(label == IGNORE for label in labels)
-    print("answer:", repr(tokeniser.decode([label for label in labels if label != IGNORE])))
-    print("prompt tail:", repr(tokeniser.decode(ids[:masked])[-40:]))
+    model, trainable = load_model(args.rank, args.alpha, device)
+    optimiser = AdamW(trainable, weight_decay=0.0)
+    directory = make_directory(RUNS)
+    print("run", directory, "optimiser steps", max_steps, "trainable", sum(p.numel() for p in trainable) / 1e6, "M")
 
-    encoded = [encode(example, tokeniser) for example in train]
-    lengths = sorted(len(ids) for ids, _ in encoded)
-    print("tokens: median", lengths[len(lengths) // 2], "max", lengths[-1])
+    stats = []
+    best_val = float("inf")
+    step = micro = 0
+    tokens = 0
+    train_sum = train_count = 0
+    started = time.time()
 
-    batches = make_batches(encoded, 4, 0)
-    cells = real = 0
-    for batch in batches:
-        input_ids, attention_mask, labels = collate(batch, tokeniser.pad_token_id)
-        cells += input_ids.numel()
-        real += int(attention_mask.sum())
-    print("batches", len(batches), "pad fraction", round(1 - real / cells, 3))
-    for batch in (batches[0], batches[-1]):
-        input_ids, attention_mask, labels = collate(batch, tokeniser.pad_token_id)
-        print(tuple(input_ids.shape), "real", int(attention_mask.sum()), "answer tokens", int((labels != IGNORE).sum()))
+    def log(lr):
+        nonlocal best_val, train_sum, train_count
+        val = evaluate(model, val_batches, pad_id, device)
+        train_mean = train_sum / train_count if train_count else float("nan")
+        train_sum = train_count = 0
+        if val < best_val:
+            best_val = val
+            save_lora_adapter(model, directory)
+        stats.append({"step": step, "train": train_mean, "val": val, "lr": lr})
+        log_losses(stats, directory)
+        print(f"step {step} train {train_mean:.4f} val {val:.4f} lr {lr:.2e}")
 
-    model, trainable = load_model(rank=16, alpha=32)
-    total = sum(p.numel() for p in model.parameters())
-    print("params", total / 1e6, "M, trainable", sum(p.numel() for p in trainable) / 1e6, "M")
-    print("weights", torch.cuda.memory_allocated() / 2**30, "GB")
+    log(0.0)
+    for epoch in range(args.epochs):
+        for batch in make_batches(train_encoded, args.max_tokens, epoch + 1):
+            input_ids, attention_mask, labels = to_device(batch, pad_id, device)
+            loss = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels).loss
+            (loss / args.accumulation).backward()
+            train_sum += loss.item()
+            train_count += 1
+            tokens += int(attention_mask.sum())
+            micro += 1
+            if micro % args.accumulation:
+                continue
+            lr = get_learning_rate(step, warm_up_steps=args.warmup, max_steps=max_steps, max_learning_rate=args.lr, min_learning_rate=args.lr / 10)
+            clip_gradients(trainable, args.clip)
+            optimiser.learning_rate = lr
+            optimiser.step()
+            optimiser.zero_grad()
+            step += 1
+            if step % args.eval_interval == 0:
+                log(lr)
+    if step % args.eval_interval:
+        log(lr)
 
-    input_ids, attention_mask, labels = (t.to("cuda") for t in collate(batches[0], tokeniser.pad_token_id))
-    loss = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels).loss
-    loss.backward()
-    first = model.model.layers[0].self_attn.q_proj
-    print("loss", loss.item(), "A grad", first.A.grad is not None, "base grad", first.base.weight.grad)
-    print("peak", torch.cuda.max_memory_allocated() / 2**30, "GB")
+    elapsed = time.time() - started
+    print(f"best val {best_val:.4f}")
+    print(f"{elapsed:.0f} s, {tokens / elapsed:.0f} tokens/s, peak {torch.cuda.max_memory_allocated() / 2**30:.1f} GB")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--max-tokens", type=int, default=3072)
+    parser.add_argument("--accumulation", type=int, default=4)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--warmup", type=int, default=10)
+    parser.add_argument("--clip", type=float, default=1.0)
+    parser.add_argument("--rank", type=int, default=16)
+    parser.add_argument("--alpha", type=int, default=32)
+    parser.add_argument("--eval-interval", type=int, default=24)
+    train(parser.parse_args())

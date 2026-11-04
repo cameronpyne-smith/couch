@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
@@ -12,12 +14,13 @@ class LoRALinear(nn.Module):
         self.base = base
         out_features = self.base.weight.shape[0]
         in_features = self.base.weight.shape[1]
-        self.A = nn.Parameter(torch.randn(rank, in_features, device=base.weight.device, dtype=base.weight.dtype) / in_features**0.5)
-        self.B = nn.Parameter(torch.zeros((out_features, rank), device=base.weight.device, dtype=base.weight.dtype))
+        self.A = nn.Parameter(torch.randn(rank, in_features, device=base.weight.device) / in_features**0.5)
+        self.B = nn.Parameter(torch.zeros((out_features, rank), device=base.weight.device))
         self.scale = alpha / rank
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.base(x) + (x @ self.A.T @ self.B.T) * self.scale
+        correction = x.to(self.A.dtype) @ self.A.T @ self.B.T
+        return self.base(x) + correction.to(x.dtype) * self.scale
     
     # x @ A.T @ B.T = x @ (B @ A).T
     def merge(self):
@@ -49,3 +52,8 @@ def merge_lora(model):
         parent_path, _, attribute = name.rpartition(".")
         parent = model.get_submodule(parent_path) if parent_path else model
         setattr(parent, attribute, module.merge())
+
+
+def save_lora_adapter(model, path):
+    adapter = {name: tensor for name, tensor in model.state_dict().items() if name.endswith((".A", ".B"))}
+    torch.save(adapter, Path(path) / "adapter.pt")

@@ -7,7 +7,7 @@ from generate import generate, load_model
 from model import cross_entropy
 from optimiser import AdamW, clip_gradients
 from train import estimate_loss, get_batch, get_learning_rate, make_directory, log_losses
-from finetune.lora import apply_lora
+from finetune.lora import apply_lora, save_lora_adapter
 
 
 def get_training_and_validation_data(tokeniser, new_training_data_path):
@@ -17,13 +17,6 @@ def get_training_and_validation_data(tokeniser, new_training_data_path):
     training_data = encoded_data[:training_data_length]
     validation_data = encoded_data[training_data_length:]
     return training_data, validation_data
-
-def save_lora_adapter(model, path):
-    file_name = "adapter.pt"
-    file_path = Path(path) / file_name
-    adapter = {name: tensor for name, tensor in model.state_dict().items() if name.endswith((".A", ".B"))}
-
-    torch.save(adapter, file_path)
 
 
 

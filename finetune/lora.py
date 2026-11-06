@@ -12,8 +12,8 @@ class LoRALinear(nn.Module):
         super().__init__()
         base.requires_grad_(False)
         self.base = base
-        out_features = self.base.weight.shape[0]
-        in_features = self.base.weight.shape[1]
+        out_features = base.out_features
+        in_features = base.in_features
         self.A = nn.Parameter(torch.randn(rank, in_features, device=base.weight.device) / in_features**0.5)
         self.B = nn.Parameter(torch.zeros((out_features, rank), device=base.weight.device))
         self.scale = alpha / rank
@@ -24,6 +24,7 @@ class LoRALinear(nn.Module):
     
     # x @ A.T @ B.T = x @ (B @ A).T
     def merge(self):
+        assert self.base.weight.dtype != torch.uint8, "cannot merge into a quantised base"
         with torch.no_grad():
             self.base.weight += (self.B @ self.A) * self.scale
         return self.base

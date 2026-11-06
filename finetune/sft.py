@@ -16,7 +16,7 @@ MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 DATA = Path.home() / "training-data" / "code" / "pr-reviews-verifier"
 RUNS = DATA / "runs"
 IGNORE = -100
-PROJECTIONS = ("q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
+PROJECTIONS = ("q_proj", "k_proj", "v_proj", "o_proj", "in_proj_qkv", "in_proj_z", "out_proj", "gate_proj", "up_proj", "down_proj")
 
 
 def load_examples(path):

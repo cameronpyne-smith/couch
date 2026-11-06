@@ -75,14 +75,14 @@ def train(args):
     device = "cuda"
     tokeniser = AutoTokenizer.from_pretrained(MODEL)
     pad_id = tokeniser.pad_token_id
-    train_encoded = [encode(example, tokeniser) for example in load_examples(DATA / "train.jsonl")]
-    val_batches = make_batches([encode(example, tokeniser) for example in load_examples(DATA / "val.jsonl")], args.max_tokens, 0)
+    train_encoded = [encode(example, tokeniser) for example in load_examples(args.data / "train.jsonl")]
+    val_batches = make_batches([encode(example, tokeniser) for example in load_examples(args.data / "val.jsonl")], args.max_tokens, 0)
     batches_per_epoch = len(make_batches(train_encoded, args.max_tokens, 0))
     max_steps = args.epochs * batches_per_epoch // args.accumulation
 
     model, trainable = load_model(args.rank, args.alpha, device)
     optimiser = AdamW(trainable, weight_decay=0.0)
-    directory = make_directory(RUNS)
+    directory = make_directory(args.data / "runs")
     print("run", directory, "optimiser steps", max_steps, "trainable", sum(p.numel() for p in trainable) / 1e6, "M")
 
     stats = []
@@ -143,4 +143,5 @@ if __name__ == "__main__":
     parser.add_argument("--rank", type=int, default=16)
     parser.add_argument("--alpha", type=int, default=32)
     parser.add_argument("--eval-interval", type=int, default=24)
+    parser.add_argument("--data", type=Path, default=DATA)
     train(parser.parse_args())

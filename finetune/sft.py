@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers.utils import quantization_config
 
 from finetune.lora import apply_lora, save_lora_adapter
 from optimiser import AdamW, clip_gradients
@@ -27,7 +28,7 @@ def encode(example, tokeniser):
         {"role": "system", "content": example["system"]},
         {"role": "user", "content": example["prompt"]},
     ]
-    prompt_ids = tokeniser.apply_chat_template(messages, add_generation_prompt=True, tokenize=True, return_dict=False)
+    prompt_ids = tokeniser.apply_chat_template(messages, add_generation_prompt=True, tokenize=True, return_dict=False, enable_thinking=False)
     answer_ids = tokeniser(example["answer"], add_special_tokens=False).input_ids + [tokeniser.eos_token_id]
     return prompt_ids + answer_ids, [IGNORE] * len(prompt_ids) + answer_ids
 
@@ -50,10 +51,19 @@ def collate(batch, pad_id):
     return torch.tensor(input_ids), torch.tensor(attention_mask), torch.tensor(labels)
 
 
-def load_model(rank, alpha, device="cuda"):
-    model = AutoModelForCausalLM.from_pretrained(MODEL, dtype=torch.bfloat16).to(device)
+def load_model(rank, alpha, device="cuda", name=MODEL, bits=16):
+    model = load_base(name, bits, device)
     trainable = apply_lora(model, rank, alpha, PROJECTIONS)
     return model, trainable
+
+def load_base(name, bits, device="cuda"):
+    if bits == 16:
+        model = AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16).to(device)
+    else:
+        config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True)
+        model = AutoModelForCausalLM.from_pretrained(name, quantization_config=config, dtype=torch.bfloat16, device_map=device)
+
+    return model
 
 
 def to_device(batch, pad_id, device):
@@ -73,14 +83,14 @@ def evaluate(model, batches, pad_id, device):
 
 def train(args):
     device = "cuda"
-    tokeniser = AutoTokenizer.from_pretrained(MODEL)
+    tokeniser = AutoTokenizer.from_pretrained(args.model)
     pad_id = tokeniser.pad_token_id
     train_encoded = [encode(example, tokeniser) for example in load_examples(args.data / "train.jsonl")]
     val_batches = make_batches([encode(example, tokeniser) for example in load_examples(args.data / "val.jsonl")], args.max_tokens, 0)
     batches_per_epoch = len(make_batches(train_encoded, args.max_tokens, 0))
     max_steps = args.epochs * batches_per_epoch // args.accumulation
 
-    model, trainable = load_model(args.rank, args.alpha, device)
+    model, trainable = load_model(args.rank, args.alpha, device, args.model, args.bits)
     optimiser = AdamW(trainable, weight_decay=0.0)
     directory = make_directory(args.data / "runs")
     print("run", directory, "optimiser steps", max_steps, "trainable", sum(p.numel() for p in trainable) / 1e6, "M")
@@ -144,4 +154,7 @@ if __name__ == "__main__":
     parser.add_argument("--alpha", type=int, default=32)
     parser.add_argument("--eval-interval", type=int, default=24)
     parser.add_argument("--data", type=Path, default=DATA)
+    parser.add_argument("--model", type=str, default=MODEL)
+    parser.add_argument("--bits", type=int, default=16, choices=(16, 4))
+
     train(parser.parse_args())

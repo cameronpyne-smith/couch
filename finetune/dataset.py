@@ -70,17 +70,20 @@ def load_records():
     return records
 
 
-def read_file_at_commit(record):
-    clone = CLONES / record["repo"].split("/", 1)[1]
-    finding = record["finding"]
+def git_show(repo, commit, path):
+    clone = CLONES / repo.split("/", 1)[1]
     result = subprocess.run(
-        ["git", "-C", str(clone), "show", f"{finding['commit']}:{finding['path']}"],
+        ["git", "-C", str(clone), "show", f"{commit}:{path}"],
         capture_output=True,
         text=True,
         errors="replace",
         check=True,
     )
     return result.stdout
+
+
+def read_file_at_commit(record):
+    return git_show(record["repo"], record["finding"]["commit"], record["finding"]["path"])
 
 
 def is_function(node, language):

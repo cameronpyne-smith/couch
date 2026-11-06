@@ -18,6 +18,7 @@ from finetune.dataset import (
     load_records,
     locate,
     render,
+    split_examples,
     write_jsonl,
 )
 
@@ -222,3 +223,9 @@ if __name__ == "__main__":
         print("-> " + e["answer"])
     write_jsonl(OUTPUT / "clean.jsonl", clean)
     print("wrote", len(clean), "to", OUTPUT / "clean.jsonl")
+
+    for name, split in split_examples(examples + clean).items():
+        prs = {(e["repo"], e["number"]) for e in split}
+        dates = sorted(e["reviewed_at"][:10] for e in split)
+        print(name, len(split), "from", len(prs), "PRs", dates[0], "to", dates[-1], "by kind", dict(Counter(e["kind"] for e in split)))
+        write_jsonl(OUTPUT / f"{name}.jsonl", split)

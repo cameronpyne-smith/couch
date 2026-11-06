@@ -35,20 +35,22 @@ MIN_FUNCTION_LINES = 4
 MAX_PER_FILE = 8
 
 
-def frame(record):
-    finding = record["finding"]
-    style = random.Random(finding["id"])
-    numbered = style.random() < 0.5 or LINE_REFERENCE.search(finding["body"]) is not None
-    unit = render(record["text"], record["span"], numbered=numbered)
-    header = f"### {finding['path']}\n" if style.random() < 0.5 else ""
+def frame(unit, start, path, seed, numbered=False):
+    style = random.Random(seed)
+    numbered = style.random() < 0.5 or numbered
+    if numbered:
+        unit = "\n".join(f"{start + i + 1:5d}   {line}" for i, line in enumerate(unit.split("\n")))
+    header = f"### {path}\n" if style.random() < 0.5 else ""
     return header + unit
 
 
 def build_real(record):
     finding = record["finding"]
+    unit = render(record["text"], record["span"], numbered=False)
+    numbered = LINE_REFERENCE.search(finding["body"]) is not None
     return {
         "system": UNIT_PROMPT,
-        "prompt": frame(record),
+        "prompt": frame(unit, record["span"][0], finding["path"], finding["id"], numbered),
         "answer": finding["body"],
         "kind": "real",
         "labelled": finding["labelled"],
@@ -57,6 +59,38 @@ def build_real(record):
         "reviewed_at": record["reviewed_at"],
     }
 
+
+def build_clean(function):
+    seed = f"{function['repo']}#{function['number']}:{function['path']}:{function['span'][0]}"
+    return {
+        "system": UNIT_PROMPT,
+        "prompt": frame(function["unit"], function["span"][0], function["path"], seed),
+        "answer": NO_BREAK,
+        "kind": "clean",
+        "labelled": "copilot:silent",
+        "repo": function["repo"],
+        "number": function["number"],
+        "reviewed_at": function["reviewed_at"],
+    }
+
+
+def sample_clean(pool, count, seed=0):
+    by_pr = {}
+    for function in pool:
+        by_pr.setdefault((function["repo"], function["number"]), []).append(function)
+    groups = list(by_pr.values())
+    rng = random.Random(seed)
+    rng.shuffle(groups)
+    for group in groups:
+        rng.shuffle(group)
+    picked = []
+    depth = 0
+    while len(picked) < count:
+        for group in groups:
+            if depth < len(group):
+                picked.append(group[depth])
+        depth += 1
+    return [build_clean(function) for function in picked[:count]]
 
 
 def load_prs():
@@ -179,3 +213,12 @@ if __name__ == "__main__":
         print(p["unit"])
     write_jsonl(OUTPUT / "pool.jsonl", pool)
     print("wrote", len(pool), "to", OUTPUT / "pool.jsonl")
+
+    clean = sample_clean(pool, len(examples))
+    print("clean", len(clean), "from", len({(e["repo"], e["number"]) for e in clean}), "PRs")
+    for e in random.Random(0).sample(clean, 3):
+        print("=" * 80)
+        print(e["prompt"])
+        print("-> " + e["answer"])
+    write_jsonl(OUTPUT / "clean.jsonl", clean)
+    print("wrote", len(clean), "to", OUTPUT / "clean.jsonl")

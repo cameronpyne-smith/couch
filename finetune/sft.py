@@ -91,6 +91,9 @@ def train(args):
     max_steps = args.epochs * batches_per_epoch // args.accumulation
 
     model, trainable = load_model(args.rank, args.alpha, device, args.model, args.bits)
+    if args.checkpoint:
+        model.gradient_checkpointing_enable()
+        model.enable_input_require_grads()
     optimiser = AdamW(trainable, weight_decay=0.0)
     directory = make_directory(args.data / "runs")
     print("run", directory, "optimiser steps", max_steps, "trainable", sum(p.numel() for p in trainable) / 1e6, "M")
@@ -156,5 +159,6 @@ if __name__ == "__main__":
     parser.add_argument("--data", type=Path, default=DATA)
     parser.add_argument("--model", type=str, default=MODEL)
     parser.add_argument("--bits", type=int, default=16, choices=(16, 4))
+    parser.add_argument("--checkpoint", action="store_true")
 
     train(parser.parse_args())

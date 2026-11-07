@@ -24,12 +24,13 @@ def answer(model, tokeniser, example, device, no_id, threshold):
     output = model(input_ids=input_ids, labels=torch.tensor([labels], device=device))
     prompt_length = labels.count(IGNORE)
     p_no = torch.softmax(output.logits[0, prompt_length - 1].float(), dim=-1)[no_id].item()
-    prompt = input_ids[:, :prompt_length]
-    suppress = [] if p_no >= threshold else [no_id]
-    generated = model.generate(
-        prompt, max_new_tokens=MAX_NEW_TOKENS, do_sample=False, pad_token_id=tokeniser.pad_token_id, begin_suppress_tokens=suppress
-    )
-    text = tokeniser.decode(generated[0, prompt_length:], skip_special_tokens=True)
+    if p_no >= threshold:
+        text = NO_BREAK
+    else:
+        generated = model.generate(
+            input_ids[:, :prompt_length], max_new_tokens=MAX_NEW_TOKENS, do_sample=False, pad_token_id=tokeniser.pad_token_id, begin_suppress_tokens=[no_id]
+        )
+        text = tokeniser.decode(generated[0, prompt_length:], skip_special_tokens=True)
     return {
         "kind": example["kind"],
         "repo": example["repo"],
@@ -104,7 +105,12 @@ if __name__ == "__main__":
     if args.limit:
         examples = random.Random(0).sample(examples, args.limit)
 
-    base = run("base", model, tokeniser, examples, device, directory / "answers-base.jsonl", args.threshold)
+    saved = args.data / "base" / args.model.split("/")[-1] / "answers-base.jsonl"
+    if args.run and saved.exists() and not args.limit:
+        base = [json.loads(line) for line in saved.read_text().splitlines()]
+        report("base", base)
+    else:
+        base = run("base", model, tokeniser, examples, device, directory / "answers-base.jsonl", args.threshold)
     if args.run:
         load_adapter(model, directory / "adapter.pt")
         adapter = run("adapter", model, tokeniser, examples, device, directory / "answers-adapter.jsonl", args.threshold)

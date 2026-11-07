@@ -8,6 +8,7 @@ from pathlib import Path
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
+import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from transformers.utils import quantization_config
 
@@ -73,13 +74,21 @@ def to_device(batch, pad_id, device):
     return tuple(tensor.to(device) for tensor in collate(batch, pad_id))
 
 
+def compute_loss(model, input_ids, attention_mask, labels):
+    hidden = model.model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+    targets = labels[:, 1:]
+    keep = targets != IGNORE
+    logits = model.lm_head(hidden[:, :-1][keep]).float()
+    return F.cross_entropy(logits, targets[keep])
+
+
 def evaluate(model, batches, pad_id, device):
     model.eval()
     total = 0.0
     with torch.no_grad():
         for batch in batches:
             input_ids, attention_mask, labels = to_device(batch, pad_id, device)
-            total += model(input_ids=input_ids, attention_mask=attention_mask, labels=labels).loss.item()
+            total += compute_loss(model, input_ids, attention_mask, labels).item()
     model.train()
     return total / len(batches)
 
@@ -124,7 +133,7 @@ def train(args):
     for epoch in range(args.epochs):
         for batch in make_batches(train_encoded, args.max_tokens, epoch + 1):
             input_ids, attention_mask, labels = to_device(batch, pad_id, device)
-            loss = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels).loss
+            loss = compute_loss(model, input_ids, attention_mask, labels)
             (loss / args.accumulation).backward()
             train_sum += loss.item()
             train_count += 1

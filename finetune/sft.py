@@ -79,7 +79,11 @@ def compute_loss(model, input_ids, attention_mask, labels):
     targets = labels[:, 1:]
     keep = targets != IGNORE
     logits = model.lm_head(hidden[:, :-1][keep]).float()
-    return F.cross_entropy(logits, targets[keep])
+    return F.cross_entropy(logits, targets[keep], reduction="sum")
+
+
+def labelled_tokens(batches):
+    return sum(label != IGNORE for batch in batches for _, labels in batch for label in labels)
 
 
 def evaluate(model, batches, pad_id, device):
@@ -90,7 +94,7 @@ def evaluate(model, batches, pad_id, device):
             input_ids, attention_mask, labels = to_device(batch, pad_id, device)
             total += compute_loss(model, input_ids, attention_mask, labels).item()
     model.train()
-    return total / len(batches)
+    return total / labelled_tokens(batches)
 
 
 def train(args):
@@ -100,7 +104,7 @@ def train(args):
     train_encoded = [encode(example, tokeniser) for example in load_examples(args.data / "train.jsonl")]
     val_batches = make_batches([encode(example, tokeniser) for example in load_examples(args.data / "val.jsonl")], args.max_tokens, 0)
     batches_per_epoch = len(make_batches(train_encoded, args.max_tokens, 0))
-    max_steps = args.epochs * batches_per_epoch // args.accumulation
+    max_steps = args.epochs * -(-batches_per_epoch // args.accumulation)
 
     model, trainable = load_model(args.rank, args.alpha, device, args.model, args.bits)
     if args.checkpoint:
@@ -112,7 +116,7 @@ def train(args):
 
     stats = []
     best_val = float("inf")
-    step = micro = 0
+    step = 0
     tokens = 0
     train_sum = train_count = 0
     started = time.time()
@@ -131,16 +135,17 @@ def train(args):
 
     log(0.0)
     for epoch in range(args.epochs):
-        for batch in make_batches(train_encoded, args.max_tokens, epoch + 1):
-            input_ids, attention_mask, labels = to_device(batch, pad_id, device)
-            loss = compute_loss(model, input_ids, attention_mask, labels)
-            (loss / args.accumulation).backward()
-            train_sum += loss.item()
-            train_count += 1
-            tokens += int(attention_mask.sum())
-            micro += 1
-            if micro % args.accumulation:
-                continue
+        batches = make_batches(train_encoded, args.max_tokens, epoch + 1)
+        for start in range(0, len(batches), args.accumulation):
+            group = batches[start : start + args.accumulation]
+            group_tokens = labelled_tokens(group)
+            for batch in group:
+                input_ids, attention_mask, labels = to_device(batch, pad_id, device)
+                loss = compute_loss(model, input_ids, attention_mask, labels)
+                (loss / group_tokens).backward()
+                train_sum += loss.item()
+                tokens += int(attention_mask.sum())
+            train_count += group_tokens
             lr = get_learning_rate(step, warm_up_steps=args.warmup, max_steps=max_steps, max_learning_rate=args.lr, min_learning_rate=args.lr / 10)
             clip_gradients(trainable, args.clip)
             optimiser.learning_rate = lr

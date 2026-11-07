@@ -14,7 +14,8 @@ MAX_NEW_TOKENS = 200
 
 
 def is_no_break(text):
-    return text.strip().lower().startswith(NO_BREAK)
+    head = text.strip().strip("`").strip().lower()
+    return head.startswith(NO_BREAK) or head.startswith("i cannot find a break")
 
 
 def answer(model, tokeniser, example, device, no_id, threshold):

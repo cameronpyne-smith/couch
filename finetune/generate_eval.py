@@ -82,7 +82,9 @@ def report(name, rows):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=Path, default=Path.home() / "training-data" / "code" / "pr-reviews-generator")
-    parser.add_argument("--run", default="20261106-121710")
+    parser.add_argument("--run")
+    parser.add_argument("--model", default=MODEL)
+    parser.add_argument("--bits", type=int, default=16, choices=(16, 4))
     parser.add_argument("--rank", default=16, type=int)
     parser.add_argument("--alpha", default=32, type=int)
     parser.add_argument("--limit", type=int)
@@ -90,20 +92,28 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     device = "cuda"
-    run_dir = args.data / "runs" / args.run
-    tokeniser = AutoTokenizer.from_pretrained(MODEL)
-    model, _ = load_model(args.rank, args.alpha, device)
+    if args.run:
+        directory = args.data / "runs" / args.run
+    else:
+        directory = args.data / "base" / args.model.split("/")[-1]
+        directory.mkdir(parents=True, exist_ok=True)
+    tokeniser = AutoTokenizer.from_pretrained(args.model)
+    model, _ = load_model(args.rank, args.alpha, device, args.model, args.bits)
     examples = load_examples(args.data / "val.jsonl")
     if args.limit:
         examples = random.Random(0).sample(examples, args.limit)
 
-    base = run("base", model, tokeniser, examples, device, run_dir / "answers-base.jsonl", args.threshold)
-    load_adapter(model, run_dir / "adapter.pt")
-    adapter = run("adapter", model, tokeniser, examples, device, run_dir / "answers-adapter.jsonl", args.threshold)
+    base = run("base", model, tokeniser, examples, device, directory / "answers-base.jsonl", args.threshold)
+    if args.run:
+        load_adapter(model, directory / "adapter.pt")
+        adapter = run("adapter", model, tokeniser, examples, device, directory / "answers-adapter.jsonl", args.threshold)
+    else:
+        adapter = [None] * len(base)
 
     real_pairs = [pair for pair in zip(base, adapter) if pair[0]["kind"] == "real"]
     for b, a in random.Random(0).sample(real_pairs, min(10, len(real_pairs))):
         print("=" * 80)
         print("gold:     " + b["gold"])
         print("base:     " + b["generated"])
-        print("adapter:  " + a["generated"])
+        if a is not None:
+            print("adapter:  " + a["generated"])

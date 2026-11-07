@@ -1,8 +1,11 @@
 import argparse
 import json
+import os
 import random
 import time
 from pathlib import Path
+
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig

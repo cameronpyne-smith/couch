@@ -6,3 +6,4 @@ runs/
 *.md
 *.gguf
 *.safetensors
+!README.md

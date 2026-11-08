@@ -18,6 +18,8 @@ class ModelConfig:
 class Linear(nn.Module):
     def __init__(self, in_features, out_features, bias=True):
         super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
         self.weight = nn.Parameter(torch.randn(out_features, in_features) * 0.02)
         self.bias = nn.Parameter(torch.zeros(out_features)) if bias else None
 

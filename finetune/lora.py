@@ -58,3 +58,9 @@ def merge_lora(model):
 def save_lora_adapter(model, path):
     adapter = {name: tensor for name, tensor in model.state_dict().items() if name.endswith((".A", ".B"))}
     torch.save(adapter, Path(path) / "adapter.pt")
+
+
+def load_lora_adapter(model, path):
+    adapter = torch.load(path)
+    report = model.load_state_dict(adapter, strict=False)
+    assert not report.unexpected_keys, report.unexpected_keys

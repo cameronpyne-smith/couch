@@ -6,3 +6,4 @@ finetune
 *.pt
 *.gguf
 *.safetensors
+projects

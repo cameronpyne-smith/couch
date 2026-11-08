@@ -5,7 +5,7 @@ import subprocess
 from collections import Counter
 from pathlib import Path
 
-from finetune.dataset import (
+from projects.pr_reviews.dataset import (
     DECLARATION_WRAPPERS,
     EXPORT,
     GOLDEN,

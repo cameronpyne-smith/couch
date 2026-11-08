@@ -10,15 +10,12 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import torch
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from transformers.utils import quantization_config
 
 from finetune.lora import apply_lora, save_lora_adapter
 from optimiser import AdamW, clip_gradients
 from train import get_learning_rate, log_losses, make_directory
 
 MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-DATA = Path.home() / "training-data" / "code" / "pr-reviews-verifier"
-RUNS = DATA / "runs"
 IGNORE = -100
 PROJECTIONS = ("q_proj", "k_proj", "v_proj", "o_proj", "in_proj_qkv", "in_proj_z", "out_proj", "gate_proj", "up_proj", "down_proj")
 
@@ -173,7 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("--rank", type=int, default=16)
     parser.add_argument("--alpha", type=int, default=32)
     parser.add_argument("--eval-interval", type=int, default=24)
-    parser.add_argument("--data", type=Path, default=DATA)
+    parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--model", type=str, default=MODEL)
     parser.add_argument("--bits", type=int, default=16, choices=(16, 4))
     parser.add_argument("--checkpoint", action="store_true")

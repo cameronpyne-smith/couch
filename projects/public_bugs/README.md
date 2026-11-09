@@ -1,0 +1,95 @@
+# public_bugs: teacher traces on open-source bug fixes
+
+The second project on couch's fine-tuning layer, started 2026-11-09 after `pr_reviews` showed that teacher traces transfer but that the work data could not be published and had too few real examples. Everything here is built from permissively licensed open-source repositories, so the dataset and any adapter trained on it can be released.
+
+## Idea
+
+A merged pull request that fixes a bug tells you where a defect was. Blaming the lines it changed, at the fix's parent, names the commit that introduced them. That introducing commit is the review moment: the function as it was then, plus that commit's diff of the file, is what a reviewer saw. The fix diff and its issue are the ground truth a teacher reasons towards.
+
+- **real**: a function at its introducing commit, labelled with the later fix. The teacher writes a trace that reaches the defect from the shown code, or marks it unreachable when the defect needs code the prompt does not show.
+- **clean**: a function changed by an ordinary merged pull request, in a file no later fix touched. A stronger negative than "the reviewer said nothing", though still not a proof.
+
+The answer format is the one from `pr_reviews/traces.py`: a three to five sentence trace, a line `Verdict: break` or `Verdict: no break`, then the finding. The decision is read at the verdict position, averaged over sampled traces (`generate_eval --mode verdict --samples 4`).
+
+## Data
+
+Under `~/training-data/code/public-bugs/`, not in this repository because of size, not secrecy.
+
+- `repos.jsonl`, `fixes.jsonl`, `merges.jsonl`: the mined pull requests (a Claude subagent working from `MINING.md`, using the GitHub CLI and full clones under `clones/`).
+- `dataset/train.jsonl`, `dataset/val.jsonl`: the built examples. Val is three whole repositories (zod, Humanizer, Quartz.NET) so nothing templated can leak across the split.
+- `dataset/packets/`, `traces-*.jsonl`, `checks-*.jsonl`: teacher packets, written traces and the second-pass checks, same protocol as the `pr_reviews` trace run (`BRIEF.md`, `BRIEF-CHECK.md`).
+- `dataset/train-traces.jsonl`, `val-full.jsonl`: assembled traces and the full val with gold; `dataset/sft/`: the training split with a small holdout for the loss curve.
+
+Repositories: C# Polly, FluentValidation (dropped, too few fixes), Humanizer, Npgsql, refit, RestSharp, Serilog (dropped), Spectre.Console, StackExchange.Redis, Ocelot, NLog, NUnit, Quartz.NET, YamlDotNet, MassTransit; TypeScript zod, date-fns, drizzle-orm, hono, NestJS, valibot, zustand, TanStack Query, tRPC, Vitest, Vue core. Licences MIT, Apache-2.0, BSD-3-Clause, PostgreSQL. Each row carries its repository, commits and licence.
+
+## Files
+
+| file | what it does |
+|---|---|
+| `dataset.py` | from the mined fixes: blame to the introducing commit, locate the enclosing function there with tree-sitter, render the prompt with that commit's diff; from the merges: clean functions in files no later fix touched; split by repository with a per-repository cap. `stats` summarises the mined rows. |
+| `traces.py` | packets for the teacher, writer assignments, check bundles, assembly (drops unreachable, disagree, rejected and generated or docs-site paths), and the `sft` split at a chosen real share. |
+
+```
+uv run python -m projects.public_bugs.dataset build --val-repos colinhacks/zod Humanizr/Humanizer quartznet/quartznet
+uv run python -m projects.public_bugs.traces packets && uv run python -m projects.public_bugs.traces assign --size 75
+# writers append traces-*.jsonl
+uv run python -m projects.public_bugs.traces checks --size 75
+# checkers append checks-*.jsonl
+uv run python -m projects.public_bugs.traces assemble && uv run python -m projects.public_bugs.traces sft
+uv run python -m finetune.sft --data <dataset>/sft --model Qwen/Qwen3.8-27B --bits 4 --checkpoint --epochs 1 --eval-interval 12
+uv run python -m projects.pr_reviews.generate_eval --data <dataset> --run-dir <dataset>/sft/runs/<ts> --model Qwen/Qwen3.8-27B --bits 4 --split val-full --mode verdict --max-new-tokens 400 --samples 4
+```
+
+## Yield
+
+| stage | count |
+|---|---|
+| fix pull requests mined (20 repositories kept by the miner) | 3,740 |
+| with an introducing commit from blame | 3,211 |
+| introducing commit owns at least half the fixed lines and touched at most 10 files | 1,569 |
+| built as real examples (per-repository cap 60; the rest lost to no function at the blamed line, or a prompt over 16k chars) | 566 |
+| train real packets written by Opus teachers | 501 |
+| marked unreachable by the writer | 207 (41%) |
+| rejected by the checker among the rest | 6 |
+| real traces kept for training | 286 |
+| clean traces kept (150 written, 4 disagreed, 6 rejected) | 141 |
+
+The unreachable share is the honest cost of the method: in two cases out of five the fixing commit landed in a different function from the one blame pointed at, or in a much later version of the code. Checkers and writers agreed closely, 73 of the 78 rejections in the first wave were traces the writer had already flagged.
+
+## Results, 2026-11-09
+
+Run `sft/runs/20261109-152620`: 259 real + 125 clean traces, one epoch, 55 optimiser steps, 1,037 s at 485 tokens/s, peak 25.1 GB, held-out loss 1.300 → 0.905 nats per token. Both models generated 400 tokens with refusal allowed; the adapter's decision score is p(no break) at the verdict position averaged over the greedy answer and four samples at temperature 0.7; the base's is from its greedy answer alone. Every `Verdict: break` finding was read by an Opus subagent with the clone, judged `real` only when the defect exists with the mechanism stated, whether or not it is the one the later fix corrected.
+
+### Public val: 61 real, 39 clean, three held-out repositories
+
+| | base | adapter |
+|---|---|---|
+| reached a verdict line within 400 tokens | 56 | 100 |
+| AUC on the decision score | 0.61 | 0.76 |
+| said `break` on real functions | 15 | 40 |
+| genuine defect among those | 3 | 4 |
+| of which the defect the fix corrected | 1 | 1 |
+| said `break` on clean functions | 10 | 12 |
+| genuine defect among those | 1 | 1 |
+| balanced accuracy at threshold 0.5 | 0.71 | 0.67 |
+| answer length | 1,600 chars | 590 chars |
+
+### Transfer to the work set: 44 real, 43 clean (from `pr_reviews`)
+
+| | base | this adapter | work-trace adapter (9f.11) | forced first-token adapter (9f.8) |
+|---|---|---|---|---|
+| AUC on the decision score | 0.41 | 0.60 | 0.76 | 0.86 |
+| said `break` on real | 7 | 19 | 5 | 44 |
+| genuine defect among those | 2 | 3 (one templated test, three repositories) | 3 | 12 |
+| said `break` on clean | 5 | 18 | 1 | 44 |
+| genuine defect among those | 0 | 0 | 0 | 1 |
+
+### Reading
+
+The real-heavy mix fixed the declining: on its own domain the adapter answers two real functions in three and reaches a verdict every time, and its decision score ranks real above clean with AUC 0.76 against the base's 0.61. What it writes is mostly wrong. Of 52 findings on the public val, 5 name a genuine defect and 1 names the defect the project later fixed; the base, when it manages to conclude, is right about as often (4 of 25). Two of the nine genuine findings across both models are on functions labelled clean, both pre-existing edge cases the project fixed later, so the "no later fix" negative is weak in the same way the silent-reviewer negative was. On the work set the adapter ranks better than the base but worse than either work-trained adapter, and its 37 findings there contain 3 genuine, all the same templated test.
+
+So 286 verified teacher traces teach the decision and the voice, and do not teach the model to find the bug a maintainer later found: on both val sets the 27B student matches the human-found defect on about 2% of functions, trained or not. The content ceiling measured in `pr_reviews` (21 to 23 of 44 reachable by sampling the base) is the number to move, and supervised traces at this scale do not move it. What is left to try with no further teacher spend is preference training on the student's own samples: on the public val the adapter's five sampled traces per function already disagree with each other on 59 of 100 functions, and the fix diff decides which side is right.
+
+### Data for release
+
+`dataset/train.jsonl`, `val.jsonl` and `train-traces.jsonl` carry repository, commits, path, line, licence and the fix pull request per row; the clones are public. Nothing from the work data enters this directory. The adapter is trained only on these traces and can be published under its potato name once a run is worth publishing.

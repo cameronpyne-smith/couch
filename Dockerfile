@@ -10,6 +10,7 @@ RUN --mount=type=bind,from=ghcr.io/astral-sh/uv:0.11.14,source=/uv,target=/usr/l
         --no-python-downloads --compile-bytecode --no-cache
 
 COPY train.py model.py optimiser.py tokeniser.py generate.py ./
+COPY finetune ./finetune
 
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=True \

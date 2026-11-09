@@ -138,7 +138,12 @@ def train(
                 f"Step {step}, training: {training_average:.3f} validation: {validation_average:.3f}"
             )
             print(f"\n--- step {step} sample ---")
-            print(generate(model, tokeniser, "\n", 200))
+            sample = generate(model, tokeniser, "\n", 200)
+            print(sample)
+
+            # Windlet log
+            print("windlet-training/1 " + json.dumps({"step": step, "loss": float(training_average), "val_loss": float(validation_average), "lr": float(lr), "sample": sample}), flush=True)
+
         x, y = get_batch(training, config.block_size, batch_size, device)
         logits = model(x)
         loss = cross_entropy(logits, y)

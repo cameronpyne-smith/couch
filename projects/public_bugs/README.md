@@ -101,7 +101,24 @@ One more run on both trace sets together (`~/training-data/code/combined-traces/
 | work traces | 0.76 | 0.66 |
 | both | 0.85 | 0.73 |
 
-Each single-source adapter loses 0.1 to 0.15 AUC away from home. The mixture keeps most of both and is the best trace-trained decision on the work set, level with the forced first-token adapter. Its findings have not been read by a verifier, so the content rate is unknown; the 2% match rate above is the prior. It is trained on work data and stays unpublishable.
+Each single-source adapter loses 0.1 to 0.15 AUC away from home. The mixture keeps most of both and is the best trace-trained decision on the work set, level with the forced first-token adapter. Three Opus readers then verified every `break` finding of the two new cells and of the combined adapter on the work set (`verdicts-combined-on-*.jsonl`, `verdicts-work-adapter-on-public.jsonl`), same protocol as above.
+
+| public val, 61 real + 39 clean | base | public traces | work traces | both |
+|---|---|---|---|---|
+| said `break` on real | 15 | 40 | 24 | 32 |
+| genuine defect among those | 3 | 4 | 3 | 5 |
+| of which the defect the fix corrected | 1 | 1 | 3 | 4 |
+| said `break` on clean | 10 | 12 | 7 | 8 |
+| genuine defect among those | 1 | 1 | 0 | 0 |
+
+| work val, 44 real + 43 clean | base | public traces | work traces (greedy) | both | forced first-token (9f.8) |
+|---|---|---|---|---|---|
+| said `break` on real | 7 | 19 | 5 | 24 | 44 |
+| genuine defect among those | 2 | 3 | 3 | 8 | 12 |
+| said `break` on clean | 5 | 18 | 1 | 8 | 44 |
+| genuine defect among those | 0 | 0 | 0 | 0 | 1 |
+
+The content moved for the first time. On the public val the combined adapter names the maintainer-fixed defect on 4 of 61 real functions (the Quartz `InterruptAsync` `break`, zod's `floatSafeRemainder` tolerance and `__proto__` skip, Npgsql's `CreateCommand` override) against 1 for the base and the public adapter, and the work-trace adapter, which never saw a public function, matches 3. On the work set the combined adapter finds 8 genuine defects, seven the `MessageBus_Link` test cluster and one the Teams alert card naming the wrong broker, with none of its 8 clean findings genuine. Two readers split on one finding (zod `floatSafeRemainder`, whose stated example does not fail although its mechanism is right): counted genuine for the combined adapter, not for the work-trace adapter, so the two public rows are within one of each other either way. The rates are still small: 7% of real functions on the public val and 18% on the work set, the latter mostly one templated test. The combined adapter is trained on work data and stays unpublishable.
 
 ### Data for release
 

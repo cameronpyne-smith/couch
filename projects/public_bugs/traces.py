@@ -3,6 +3,7 @@ import json
 import random
 import re
 from collections import Counter
+from pathlib import Path
 
 from projects.pr_reviews.dataset import write_jsonl
 from projects.pr_reviews.traces import BREAK, NO_BREAK, SYSTEM, compose
@@ -48,13 +49,15 @@ def write_packets():
         print(split, dict(Counter(e["kind"] for e in examples)))
 
 
-def assignments(size):
+def assignments(size, new):
     (DATA / "assignments").mkdir(exist_ok=True)
+    assigned = {(path.stem.split("-")[0], int(Path(line).stem)) for path in (DATA / "assignments").glob("*-*-*.txt") for line in path.read_text().split()} if new else set()
     for split in ("train", "val"):
         examples = load(DATA / f"{split}.jsonl")
         for kind in ("real", "clean"):
-            indices = [i for i, e in enumerate(examples) if e["kind"] == kind]
-            for n, offset in enumerate(range(0, len(indices), size), start=1):
+            indices = [i for i, e in enumerate(examples) if e["kind"] == kind and (split, i) not in assigned and not excluded(e)]
+            start = len(list((DATA / "assignments").glob(f"{split}-{kind}-*.txt"))) + 1 if new else 1
+            for n, offset in enumerate(range(0, len(indices), size), start=start):
                 path = DATA / "assignments" / f"{split}-{kind}-{n}.txt"
                 path.write_text("".join(f"{PACKETS / split / f'{i:04d}.md'}\n" for i in indices[offset : offset + size]))
                 print(path.name, len(indices[offset : offset + size]))
@@ -72,7 +75,7 @@ def latest(pattern):
 
 def check_assignments(size):
     assigned = {(row["split"], int(row["index"])) for path in (DATA / "assignments").glob("check-*.jsonl") for row in map(json.loads, path.read_text().splitlines())}
-    pending = [row for key, row in sorted(latest("traces-*.jsonl").items()) if key not in assigned]
+    pending = [row for key, row in sorted(latest("traces-*.jsonl").items()) if key not in assigned and row.get("reachable", True) and not row.get("disagree")]
     existing = len(list((DATA / "assignments").glob("check-*.jsonl")))
     for offset in range(0, len(pending), size):
         existing += 1
@@ -100,7 +103,7 @@ def assemble():
                 kept.append(row)
                 count[(example["kind"], "kept")] += 1
             else:
-                count[(example["kind"], "no trace" if not trace else "unchecked" if not check else "rejected" if not check["ok"] else "unreachable" if not trace.get("reachable", True) else "disagree" if trace.get("disagree") else "wrong verdict")] += 1
+                count[(example["kind"], "no trace" if not trace else "unreachable" if not trace.get("reachable", True) else "disagree" if trace.get("disagree") else "unchecked" if not check else "rejected" if not check["ok"] else "wrong verdict")] += 1
             full.append(row)
         write_jsonl(DATA / f"{split}-traces.jsonl", kept)
         write_jsonl(DATA / f"{split}-full.jsonl", full)
@@ -130,11 +133,12 @@ if __name__ == "__main__":
     parser.add_argument("--holdout", type=float, default=0.1)
     parser.add_argument("--real-share", type=float, default=0.65)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--new", action="store_true", help="assign only packets without a trace, numbering on from the existing files")
     args = parser.parse_args()
     if args.command == "packets":
         write_packets()
     elif args.command == "assign":
-        assignments(args.size)
+        assignments(args.size, args.new)
     elif args.command == "checks":
         check_assignments(args.size)
     elif args.command == "sft":

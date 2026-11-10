@@ -181,25 +181,34 @@ def later_fixed(fixes):
     return touched
 
 
-def build(val_repos, clean_share, seed, per_repo):
+def key_of(example):
+    return (example["repo"], example["commit"], example["path"], example["line"])
+
+
+def build(val_repos, clean_share, seed, per_repo, extend):
     fixes = load(PUBLIC / "fixes.jsonl")
     merges = load(PUBLIC / "merges.jsonl")
     licences = {row["repo"]: row["licence"] for row in load(PUBLIC / "repos.jsonl")}
+    existing = load(DATA / "train.jsonl") + load(DATA / "val.jsonl") if extend else []
+    seen = {key_of(e) for e in existing}
+    have = Counter((e["repo"], e["kind"]) for e in existing)
     rng = random.Random(seed)
     reasons = Counter()
     reals = []
     by_repo = {}
     for fix in fixes:
-        by_repo.setdefault(fix["repo"], []).append(fix)
+        if not extend or fix["repo"] not in val_repos:
+            by_repo.setdefault(fix["repo"], []).append(fix)
     for repo, candidates in sorted(by_repo.items()):
         rng.shuffle(candidates)
-        built = 0
+        built = have[(repo, "real")]
         for fix in candidates:
             if built >= per_repo:
                 break
             example, reason = build_real(fix)
             reasons[reason] += 1
-            if example:
+            if example and key_of(example) not in seen:
+                seen.add(key_of(example))
                 reals.append(example)
                 built += 1
         print(f"  {repo}: {built} real", flush=True)
@@ -208,24 +217,28 @@ def build(val_repos, clean_share, seed, per_repo):
     candidates = []
     for merge in merges:
         for path in merge["files"]:
-            if Path(path).suffix in LANGUAGES and not any(when > merge["merged_at"] for when in touched.get((merge["repo"], path), [])):
+            if Path(path).suffix in LANGUAGES and not any(when > merge["merged_at"] for when in touched.get((merge["repo"], path), [])) and not (extend and merge["repo"] in val_repos):
                 candidates.append((merge, path))
     rng.shuffle(candidates)
-    wanted = round(len(reals) * clean_share / (1 - clean_share))
+    total_real = len(reals) + sum(n for (_, kind), n in have.items() if kind == "real")
+    wanted = round(total_real * clean_share / (1 - clean_share)) - sum(n for (_, kind), n in have.items() if kind == "clean")
     cleans = []
-    seen = set()
     for merge, path in candidates:
         if len(cleans) >= wanted:
             break
         example = build_clean(merge, path, rng)
-        if example and (example["repo"], example["commit"], example["path"], example["line"]) not in seen:
-            seen.add((example["repo"], example["commit"], example["path"], example["line"]))
+        if example and key_of(example) not in seen:
+            seen.add(key_of(example))
             cleans.append(example)
     print("clean", len(cleans), "of", len(candidates), "candidates, wanted", wanted)
     DATA.mkdir(parents=True, exist_ok=True)
     for split, keep in (("train", lambda e: e["repo"] not in val_repos), ("val", lambda e: e["repo"] in val_repos)):
         rows = [{**e, "licence": licences.get(e["repo"])} for e in reals + cleans if keep(e)]
         rng.shuffle(rows)
+        if extend:
+            if split == "val":
+                continue
+            rows = load(DATA / "train.jsonl") + rows
         write_jsonl(DATA / f"{split}.jsonl", rows)
         print(split, dict(Counter(e["kind"] for e in rows)), dict(Counter(e["repo"] for e in rows)))
 
@@ -247,8 +260,9 @@ if __name__ == "__main__":
     parser.add_argument("--clean-share", type=float, default=0.35)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--per-repo", type=int, default=60)
+    parser.add_argument("--extend", action="store_true", help="keep the existing rows and append new ones to train only")
     args = parser.parse_args()
     if args.command == "stats":
         stats()
     else:
-        build(set(args.val_repos), args.clean_share, args.seed, args.per_repo)
+        build(set(args.val_repos), args.clean_share, args.seed, args.per_repo, args.extend)

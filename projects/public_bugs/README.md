@@ -120,6 +120,29 @@ Each single-source adapter loses 0.1 to 0.15 AUC away from home. The mixture kee
 
 The content moved for the first time. On the public val the combined adapter names the maintainer-fixed defect on 4 of 61 real functions (the Quartz `InterruptAsync` `break`, zod's `floatSafeRemainder` tolerance and `__proto__` skip, Npgsql's `CreateCommand` override) against 1 for the base and the public adapter, and the work-trace adapter, which never saw a public function, matches 3. On the work set the combined adapter finds 8 genuine defects, seven the `MessageBus_Link` test cluster and one the Teams alert card naming the wrong broker, with none of its 8 clean findings genuine. Two readers split on one finding (zod `floatSafeRemainder`, whose stated example does not fail although its mechanism is right): counted genuine for the combined adapter, not for the work-trace adapter, so the two public rows are within one of each other either way. The rates are still small: 7% of real functions on the public val and 18% on the work set, the latter mostly one templated test. The combined adapter is trained on work data and stays unpublishable.
 
+### Three times the traces, 2026-11-10
+
+The dataset was extended twice more in one morning (per-repository cap 300, then fifteen new repositories mined by two Opus subagents: efcore, aspnetcore, Orleans, akka.net, the MongoDB driver, Marten, Avalonia, maui, Swashbuckle, opentelemetry-dotnet, vite, typeorm, typescript-eslint, solid, and part of prisma and playwright). Writers marked 893 of 1,761 real packets unreachable (51%; 62% in the new repositories, which are UI and platform heavy), and checkers now skip rows that would be dropped anyway. Kept: 850 real + 870 clean. Public-only run `sft/runs/20261110-130024`: 759 real + 418 clean, 166 steps, held-out loss 0.993 → 0.877. Combined run `combined-traces/runs/20261110-144225`: 1,009 real + 543 clean, 229 steps, 6,076 s, held-out loss 1.339 → 0.921. Each adapter was evaluated only where it is meant to serve, and one Opus reader per set judged every `break` finding (`verdicts-public-r2-on-public.jsonl`, `verdicts-combined-r2-on-work.jsonl`).
+
+| public val, 61 real + 39 clean | base | 286 real traces | 759 real traces |
+|---|---|---|---|
+| AUC on the decision score | 0.61 | 0.76 | 0.78 |
+| said `break` on real | 15 | 40 | 41 |
+| genuine defect among those | 3 | 4 | 5 |
+| of which the defect the fix corrected | 1 | 1 | 4 |
+| said `break` on clean | 10 | 12 | 11 |
+| genuine defect among those | 1 | 1 | 0 |
+
+| work val, 44 real + 43 clean | combined, 509 real | combined, 1,009 real |
+|---|---|---|
+| AUC on the decision score | 0.85 | 0.82 |
+| said `break` on real | 24 | 28 |
+| genuine defect among those | 8 | 3 (8 by last night's reader's standard) |
+| said `break` on clean | 8 | 8 |
+| genuine defect among those | 0 | 0 |
+
+The decision did not move: 0.02 AUC at home, within noise on the work set. The content did, on the public val: the public-only adapter now names the maintainer-fixed defect on 4 of 61 real functions (Quartz `InterruptAsync`, zod's lazy getter and `__proto__` skip, Humanizer's `PrependArticleSuffix`) against 1 with a third of the data, level with what the combined adapter reached yesterday, and none of its 11 clean findings is a genuine defect. On the work set the picture is unchanged: the same `MessageBus_Link` test cluster and the SignalR start timeout. Today's reader applied the wrong-mechanism rule strictly to five findings that name that test but blame its sibling's cleanup, which last night's reader had counted; with the same standard the count is 8 of 28, as yesterday. The rest of the work findings are one template, "no catch in `HandleAsync`", repeated across nine handlers and refuted by the consumer host that catches and dead-letters. The public-only adapter is the one that can be published, and this is its first run with a content rate above the base.
+
 ### Data for release
 
 `dataset/train.jsonl`, `val.jsonl` and `train-traces.jsonl` carry repository, commits, path, line, licence and the fix pull request per row; the clones are public. Nothing from the work data enters this directory. The adapter is trained only on these traces and can be published under its potato name once a run is worth publishing.

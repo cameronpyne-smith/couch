@@ -90,6 +90,19 @@ The real-heavy mix fixed the declining: on its own domain the adapter answers tw
 
 So 286 verified teacher traces teach the decision and the voice, and do not teach the model to find the bug a maintainer later found: on both val sets the 27B student matches the human-found defect on about 2% of functions, trained or not. The content ceiling measured in `pr_reviews` (21 to 23 of 44 reachable by sampling the base) is the number to move, and supervised traces at this scale do not move it. What is left to try with no further teacher spend is preference training on the student's own samples: on the public val the adapter's five sampled traces per function already disagree with each other on 59 of 100 functions, and the fix diff decides which side is right.
 
+### Combined with the work traces, 2026-11-09
+
+One more run on both trace sets together (`~/training-data/code/combined-traces/`, 509 real + 274 clean at the same 65% mix, 121 steps, held-out loss 1.30 → 0.972), and the work-trace adapter scored on the public val to complete the matrix. Decision-score AUC with `--samples 4`; the work-trace adapter's work-val number is its greedy run.
+
+| adapter trained on | work val | public val |
+|---|---|---|
+| nothing (base) | 0.41 | 0.61 |
+| public traces | 0.60 | 0.76 |
+| work traces | 0.76 | 0.66 |
+| both | 0.85 | 0.73 |
+
+Each single-source adapter loses 0.1 to 0.15 AUC away from home. The mixture keeps most of both and is the best trace-trained decision on the work set, level with the forced first-token adapter. Its findings have not been read by a verifier, so the content rate is unknown; the 2% match rate above is the prior. It is trained on work data and stays unpublishable.
+
 ### Data for release
 
 `dataset/train.jsonl`, `val.jsonl` and `train-traces.jsonl` carry repository, commits, path, line, licence and the fix pull request per row; the clones are public. Nothing from the work data enters this directory. The adapter is trained only on these traces and can be published under its potato name once a run is worth publishing.

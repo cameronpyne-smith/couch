@@ -75,8 +75,8 @@ def answer_by_verdict(model, tokeniser, example, device, no_id, max_new_tokens, 
             pad_token_id=tokeniser.pad_token_id, output_scores=True, return_dict_in_generate=True,
         )
         for k in range(samples):
-            _, sample_verdict, sample_p_no = verdict_of(tokeniser, output.sequences[k, prompt_length:].tolist(), [step[k : k + 1] for step in output.scores])
-            sampled.append({"verdict": sample_verdict, "p_no": sample_p_no})
+            sample_text, sample_verdict, sample_p_no = verdict_of(tokeniser, output.sequences[k, prompt_length:].tolist(), [step[k : k + 1] for step in output.scores])
+            sampled.append({"verdict": sample_verdict, "p_no": sample_p_no, "text": sample_text})
     result = row(example, text, loss, mean([p_no] + [s["p_no"] for s in sampled]), verdict == NO_BREAK_VERDICT, verdict)
     result["p_no_greedy"] = p_no
     result["samples"] = sampled

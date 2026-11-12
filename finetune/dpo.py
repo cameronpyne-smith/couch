@@ -25,3 +25,17 @@ def dpo_loss(policy_chosen, policy_rejected, reference_chosen, reference_rejecte
     loss = -F.logsigmoid(x)
     return loss.mean()
 
+def pairs_from_samples(samples, correct):
+    right = []
+    wrong = []
+    for sample in samples:
+        if sample["verdict"] == "none":
+            continue
+
+        if sample["verdict"] == correct:
+            right.append(sample["text"])
+        else:
+            wrong.append(sample["text"])
+
+    return list(zip(right, wrong))
+

@@ -44,3 +44,18 @@ def test_rows_add_up_to_batch():
     assert output.shape == (2,)
     assert torch.allclose(output.sum(), -output_2, atol=1e-5)
 
+def test_row_is_unchanged_by_padding():
+    torch.manual_seed(0)
+    long_ids = [1, 2, 3, 4, 5]
+    long_labels = [IGNORE, IGNORE, 3, 4, 5]
+    short_ids = [2, 1, 4]
+    short_labels = [IGNORE, 1, 4]
+    batch = [(long_ids, long_labels), (short_ids, short_labels)]
+    ids_1, attention_mask_1, labels_1 = collate([(long_ids, long_labels), (short_ids, short_labels)], 0)
+    ids_2, attention_mask_2, labels_2 = collate([(short_ids, short_labels)], 0)
+    stand_in = StandIn()
+    output_1 = sequence_log_probs(stand_in, ids_1, attention_mask_1, labels_1)
+    output_2 = sequence_log_probs(stand_in, ids_2, attention_mask_2, labels_2)
+    assert torch.allclose(output_1[1], output_2[0], atol=1e-5)
+
+

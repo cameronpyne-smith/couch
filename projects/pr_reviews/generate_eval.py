@@ -149,6 +149,7 @@ if __name__ == "__main__":
     parser.add_argument("--run-dir", type=Path, help="adapter run directory when it is not under --data/runs")
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--match", action="store_true", help="pick the adapter threshold that answers as many real examples as the base did")
+    parser.add_argument("--skip-base", action="store_true", help="answer with the adapter only")
     args = parser.parse_args()
 
     device = "cuda"
@@ -170,7 +171,9 @@ if __name__ == "__main__":
 
     base_suffix = suffix.replace(f"-s{args.samples}", "").replace(f"-{args.data.name}", "")
     saved = args.data / "base" / args.model.split("/")[-1] / f"answers-base{base_suffix}.jsonl"
-    if (args.run or args.run_dir) and saved.exists() and not args.limit:
+    if args.skip_base:
+        base = []
+    elif (args.run or args.run_dir) and saved.exists() and not args.limit:
         base = [json.loads(line) for line in saved.read_text().splitlines()]
         report("base", base)
     else:

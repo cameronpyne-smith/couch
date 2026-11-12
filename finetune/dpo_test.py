@@ -1,9 +1,11 @@
+import pytest
 import torch
+import math
 
 from types import SimpleNamespace
 from torch import nn
 from finetune.sft import IGNORE, collate, compute_loss
-from finetune.dpo import sequence_log_probs 
+from finetune.dpo import sequence_log_probs, dpo_loss
 
 
 class Body(nn.Module):
@@ -58,4 +60,23 @@ def test_row_is_unchanged_by_padding():
     output_2 = sequence_log_probs(stand_in, ids_2, attention_mask_2, labels_2)
     assert torch.allclose(output_1[1], output_2[0], atol=1e-5)
 
+@pytest.fixture
+def base():
+    return torch.tensor([-5.0, -8.0])
 
+
+def test_loss_is_log_2_when_policy_equals_reference(base):
+    assert dpo_loss(base, base, base, base, 1).item() == pytest.approx(math.log(2))
+
+
+def test_loss_falls_when_chosen_gains_and_rises_when_rejected_gains(base):
+    start = dpo_loss(base, base, base, base, 1)
+    assert dpo_loss(base + 1, base, base, base, 1) < start
+    assert dpo_loss(base, base + 1, base, base, 1) > start
+
+
+def test_loss_depends_only_on_change_from_reference(base):
+    before = dpo_loss(base + 1, base, base, base, 1)
+    after = dpo_loss(base + 1 + 3, base, base + 3, base, 1)
+    assert before.item() != pytest.approx(math.log(2))
+    assert after.item() == pytest.approx(before.item())

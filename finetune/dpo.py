@@ -15,3 +15,13 @@ def sequence_log_probs(model, input_ids, attention_mask, labels):
     grid[keep] = losses
     summed_loss = grid.sum(dim=1)
     return -summed_loss
+
+# policy = model being trained, reference = frozen starting model
+def dpo_loss(policy_chosen, policy_rejected, reference_chosen, reference_rejected, beta):
+    chosen_gain = policy_chosen - reference_chosen
+    rejected_gain = policy_rejected - reference_rejected
+    margin = chosen_gain - rejected_gain
+    x = beta * margin
+    loss = -F.logsigmoid(x)
+    return loss.mean()
+

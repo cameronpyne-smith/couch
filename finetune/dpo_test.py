@@ -113,3 +113,4 @@ def test_three_right_one_wrong_gives_one_pair():
 def test_sample_without_a_verdict_is_in_no_pair():
     samples = [says("none", 1), says("break", 1), says("no break", 1)]
     assert pairs_from_samples(samples, "break") == [("says break 1", "says no break 1")]
+

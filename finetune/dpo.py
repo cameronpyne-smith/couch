@@ -1,8 +1,8 @@
 import torch
 import torch.nn.functional as F
 
+from finetune.sft import encode, IGNORE
 
-IGNORE = -100
 
 
 def sequence_log_probs(model, input_ids, attention_mask, labels):
@@ -39,3 +39,7 @@ def pairs_from_samples(samples, correct):
 
     return list(zip(right, wrong))
 
+def encode_pair(row, tokeniser):
+    chosen = encode(row | {"answer": row["chosen"]}, tokeniser)
+    rejected = encode(row | {"answer": row["rejected"]}, tokeniser)
+    return chosen, rejected

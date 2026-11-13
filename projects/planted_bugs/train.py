@@ -14,11 +14,10 @@ import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from finetune.lora import apply_lora, save_lora_adapter
-from finetune.sft import MODEL, PROJECTIONS
+from finetune.sft import IGNORE, MODEL, PROJECTIONS
 from optimiser import AdamW, clip_gradients
 from train import get_learning_rate
 
-IGNORE = -100
 METRICS = "windlet-training/1 "
 SYSTEM = (
     "You review code. One line of the function below may contain a small bug: an inverted or wrong comparison, "
@@ -111,7 +110,6 @@ def evaluate(model, tokeniser, val, pad_id, none_id, max_tokens):
         logits, targets, keep = answer_logits(model, [(ids, length) for ids, length, _ in batch], pad_id)
         loss_sum += F.cross_entropy(logits, targets, reduction="sum").item()
         tokens += len(targets)
-        first = keep.float().argmax(dim=1)
         rows_of = keep.sum(dim=1).cumsum(0) - keep.sum(dim=1)
         probabilities = F.softmax(logits[rows_of], dim=-1)[:, none_id]
         for k, (_, _, i) in enumerate(batch):

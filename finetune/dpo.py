@@ -54,3 +54,11 @@ def encode_pair(row, tokeniser):
 def pair_log_probs(model, pair, pad_id, device):
     input_ids, attention_mask, labels = to_device(list(pair), pad_id, device)
     return sequence_log_probs(model, input_ids, attention_mask, labels)
+
+def reference_log_probs(model, pairs, pad_id, device):
+    results = []
+    with torch.no_grad():
+        for pair in pairs:
+            result = pair_log_probs(model, pair, pad_id, device)
+            results.append(result.cpu())
+    return torch.stack(results)

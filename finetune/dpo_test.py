@@ -5,7 +5,7 @@ import pytest
 import torch
 from torch import nn
 
-from finetune.dpo import dpo_loss, pairs_from_samples, sequence_log_probs
+from finetune.dpo import dpo_loss, pair_log_probs, pairs_from_samples, reference_log_probs, sequence_log_probs
 from finetune.sft import IGNORE, collate, compute_loss
 
 
@@ -114,3 +114,16 @@ def test_sample_without_a_verdict_is_in_no_pair():
     samples = [says("none", 1), says("break", 1), says("no break", 1)]
     assert pairs_from_samples(samples, "break") == [("says break 1", "says no break 1")]
 
+
+def test_reference_log_probs_scores_each_pair_without_gradients():
+    torch.manual_seed(0)
+    stand_in = StandIn()
+    pairs = [
+        (([1, 2, 3, 4], [IGNORE, IGNORE, 3, 4]), ([1, 2, 5], [IGNORE, IGNORE, 5])),
+        (([3, 1], [IGNORE, 1]), ([3, 4, 2, 5], [IGNORE, 4, 2, 5])),
+    ]
+    result = reference_log_probs(stand_in, pairs, 0, "cpu")
+    assert result.shape == (2, 2)
+    for index, pair in enumerate(pairs):
+        assert torch.allclose(result[index], pair_log_probs(stand_in, pair, 0, "cpu"))
+    assert not result.requires_grad

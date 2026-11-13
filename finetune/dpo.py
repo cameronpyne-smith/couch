@@ -62,3 +62,8 @@ def reference_log_probs(model, pairs, pad_id, device):
             result = pair_log_probs(model, pair, pad_id, device)
             results.append(result.cpu())
     return torch.stack(results)
+
+def pair_loss(model, pair, reference, beta, pad_id, device):
+    policy = pair_log_probs(model, pair, pad_id, device)
+    reference = reference.to(policy.device)
+    return dpo_loss(policy[0], policy[1], reference[0], reference[1], beta)

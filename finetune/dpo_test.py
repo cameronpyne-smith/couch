@@ -5,7 +5,7 @@ import pytest
 import torch
 from torch import nn
 
-from finetune.dpo import dpo_loss, pair_log_probs, pairs_from_samples, reference_log_probs, sequence_log_probs
+from finetune.dpo import dpo_loss, pair_log_probs, pair_loss, pairs_from_samples, reference_log_probs, sequence_log_probs
 from finetune.sft import IGNORE, collate, compute_loss
 
 
@@ -115,15 +115,41 @@ def test_sample_without_a_verdict_is_in_no_pair():
     assert pairs_from_samples(samples, "break") == [("says break 1", "says no break 1")]
 
 
-def test_reference_log_probs_scores_each_pair_without_gradients():
+@pytest.fixture
+def stand_in():
     torch.manual_seed(0)
-    stand_in = StandIn()
-    pairs = [
+    return StandIn()
+
+
+@pytest.fixture
+def pairs():
+    return [
         (([1, 2, 3, 4], [IGNORE, IGNORE, 3, 4]), ([1, 2, 5], [IGNORE, IGNORE, 5])),
         (([3, 1], [IGNORE, 1]), ([3, 4, 2, 5], [IGNORE, 4, 2, 5])),
     ]
+
+
+def test_reference_log_probs_scores_each_pair_without_gradients(stand_in, pairs):
     result = reference_log_probs(stand_in, pairs, 0, "cpu")
     assert result.shape == (2, 2)
     for index, pair in enumerate(pairs):
         assert torch.allclose(result[index], pair_log_probs(stand_in, pair, 0, "cpu"))
     assert not result.requires_grad
+
+
+def test_pair_loss_is_log_2_at_start_and_trainable(stand_in, pairs):
+    reference = reference_log_probs(stand_in, pairs, 0, "cpu")
+    for pair, row in zip(pairs, reference):
+        loss = pair_loss(stand_in, pair, row, 0.1, 0, "cpu")
+        assert loss.item() == pytest.approx(math.log(2))
+        assert loss.requires_grad
+
+
+def test_a_gradient_step_on_pair_loss_lowers_it(stand_in, pairs):
+    reference = reference_log_probs(stand_in, pairs, 0, "cpu")
+    before = pair_loss(stand_in, pairs[0], reference[0], 0.1, 0, "cpu")
+    before.backward()
+    with torch.no_grad():
+        for parameter in stand_in.parameters():
+            parameter -= 0.1 * parameter.grad
+    assert pair_loss(stand_in, pairs[0], reference[0], 0.1, 0, "cpu") < before

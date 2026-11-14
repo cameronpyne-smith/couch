@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from finetune.sft import IGNORE, encode, to_device
+from finetune.sft import IGNORE, encode, load_examples, to_device
 
 
 def sequence_log_probs(model, input_ids, attention_mask, labels):
@@ -67,3 +67,14 @@ def pair_loss(model, pair, reference, beta, pad_id, device):
     policy = pair_log_probs(model, pair, pad_id, device)
     reference = reference.to(policy.device)
     return dpo_loss(policy[0], policy[1], reference[0], reference[1], beta)
+
+def load_pairs(path, tokeniser, max_tokens):
+    rows = load_examples(path)
+    pairs = []
+    for row in rows:
+        pair = encode_pair(row, tokeniser)
+        longer = max(len(pair[0][0]), len(pair[1][0]))
+        if 2 * longer <= max_tokens:
+            pairs.append(pair)
+    print(f"{path.name}: kept {len(pairs)} of {len(rows)} pairs within {max_tokens} tokens")
+    return pairs

@@ -7,7 +7,7 @@ from tokeniser import Tokeniser
 
 
 def load_model(file_path: str, device="cuda"):
-    d = torch.load(file_path, weights_only=False)
+    d = torch.load(file_path, map_location=device, weights_only=True)
     step = d["step"]
     config = ModelConfig(**d["config"])
     model = GPT(config)

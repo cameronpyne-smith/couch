@@ -260,6 +260,10 @@ dependencies = [
 dev = [
     { name = "pytest" },
 ]
+serve = [
+    { name = "numpy" },
+    { name = "torch" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -279,6 +283,10 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
+serve = [
+    { name = "numpy", specifier = ">=2.5.3" },
+    { name = "torch", specifier = ">=2.14.1" },
+]
 
 [[package]]
 name = "cuda-bindings"

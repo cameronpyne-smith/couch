@@ -28,6 +28,7 @@ Repositories: C# Polly, FluentValidation (dropped, too few fixes), Humanizer, Np
 |---|---|
 | `dataset.py` | from the mined fixes: blame to the introducing commit, locate the enclosing function there with tree-sitter, render the prompt with that commit's diff; from the merges: clean functions in files no later fix touched; split by repository with a per-repository cap. `stats` summarises the mined rows. |
 | `traces.py` | packets for the teacher, writer assignments, check bundles, assembly (drops unreachable, disagree, rejected and generated or docs-site paths), and the `sft` split at a chosen real share. |
+| `pairs.py` | chosen and rejected answer pairs for `finetune.dpo` from sampled answers: by verdict (optionally balanced by kind) or by reader verdicts on which answers name the fixed defect, with a holdout by function. |
 
 ```
 uv run python -m projects.public_bugs.dataset build --val-repos colinhacks/zod Humanizr/Humanizer quartznet/quartznet
@@ -142,6 +143,42 @@ The dataset was extended twice more in one morning (per-repository cap 300, then
 | genuine defect among those | 0 | 0 |
 
 The decision did not move: 0.02 AUC at home, within noise on the work set. The content did, on the public val: the public-only adapter now names the maintainer-fixed defect on 4 of 61 real functions (Quartz `InterruptAsync`, zod's lazy getter and `__proto__` skip, Humanizer's `PrependArticleSuffix`) against 1 with a third of the data, level with what the combined adapter reached yesterday, and none of its 11 clean findings is a genuine defect. On the work set the picture is unchanged: the same `MessageBus_Link` test cluster and the SignalR start timeout. Today's reader applied the wrong-mechanism rule strictly to five findings that name that test but blame its sibling's cleanup, which last night's reader had counted; with the same standard the count is 8 of 28, as yesterday. The rest of the work findings are one template, "no catch in `HandleAsync`", repeated across nine handlers and refuted by the consumer host that catches and dead-letters. The public-only adapter is the one that can be published, and this is its first run with a content rate above the base.
+
+### Direct preference optimisation, 2026-11-14
+
+`finetune/dpo.py` trains an adapter on pairs of answers to the same prompt, one chosen and one rejected: the loss is `-log sigmoid(beta * margin)`, where the margin is how much more the adapter favours the chosen answer over the rejected one than a frozen copy of its starting point did. It starts at log 2 = 0.693 nats per pair. Every run below starts from the public-only adapter `sft/20261110-130024`, with beta 0.1, learning rate 2e-5, eight pairs per optimiser step and pairs that fit 6,144 tokens.
+
+The pairs come from that adapter's own samples: four sampled answers at temperature 0.7 for each of the 1,177 training functions (`generate_eval --split train --samples 4`). Three ways of pairing them were tried.
+
+```
+uv run python -m projects.public_bugs.pairs --answers <samples> --data <dataset>/sft/train.jsonl --out <dataset>/dpo/train.jsonl [--balance]
+uv run python -m projects.public_bugs.pairs --answers <samples> --data <dataset>/sft/train.jsonl --verdicts <verdicts-*.jsonl> --out <dataset>/dpo-content/train.jsonl --val-out <dataset>/dpo-content/val.jsonl
+uv run python -m finetune.dpo --data <dataset>/dpo --output-dir <runs>/dpo --adapter <runs>/sft/<ts> --model Qwen/Qwen3.8-27B --bits 4 --checkpoint
+```
+
+- **By verdict**: chosen is a sample with the right verdict for the function's kind, rejected one with the wrong verdict. 513 functions had disagreeing samples, giving 677 pairs, 477 on real functions and 200 on clean.
+- **By verdict, balanced**: the same pairs cut to 200 real and 200 clean, with 16 + 16 held out.
+- **By content**: both answers say `break` on a real function; chosen names the defect the later fix corrected and rejected does not. Nine Opus readers, working only from packets with the fix diff, judged all 2,133 `break` samples of the 635 real functions that had at least two: 438 matched, 232 functions had a match and 190 had both a match and a non-match, giving 208 training pairs and 20 held out by function. On the held-out repositories the same adapter matches on about one function in ten, so most of these matches are recall of the trace it was trained on.
+
+| | pairs | epochs, steps | pair loss, train | pair loss, held out | saved at step |
+|---|---|---|---|---|---|
+| by verdict | 664 | 1, 83 | 0.67 → 0.60, noisy | 0.693 → 0.517 | 83 |
+| by verdict, balanced | 393 | 1, 50 | 0.67 to 0.75 throughout | 0.693 → 0.643 → 0.714 | 10 |
+| by content | 207 | 3, 78 | 0.68 → 0.09 | 0.693 → 0.630 → 0.637 | 20 |
+
+| public val, 61 real + 39 clean | SFT | SFT repeat | by verdict | balanced | by content |
+|---|---|---|---|---|---|
+| AUC on the decision score | 0.78 | 0.81 | 0.80 | 0.78 | 0.72 |
+| said `break` on real | 41 | 43 | 57 | 45 | 17 |
+| said `break` on clean | 11 | 12 | 20 | 13 | 3 |
+| balanced accuracy | 0.70 | 0.70 | 0.71 | 0.70 | 0.60 |
+| named the defect the fix corrected | 6 | | | | 3 |
+
+The SFT repeat is the same recipe run again (`sft/20261113-173045`), so 0.03 AUC is what chance alone moves. The last row is from one Opus reader judging both adapters' greedy `break` answers against the fix diff without knowing which adapter wrote which; it reads from packets only, so its 6 is not comparable with the 4 in the table above, which came from readers with the clones.
+
+None of the three improved the ranking of real above clean. Each moved the adapter's readiness to say `break` in whichever direction its pairs made cheapest: up when 70% of the chosen answers said `break`, nowhere when the two kinds were balanced (the training loss stayed around its starting 0.69), and down when every rejected answer was a `break` answer with the wrong mechanism. The content run found half as many of the fixed defects with the same share of its findings right (3 of 17 against 6 of 41), so it bought no precision with the recall it gave up, and it memorised its 207 pairs from the second epoch while the held-out loss stood still.
+
+The loss and the loop behave as they should: every run did what its pairs asked. What the pairs lacked is information. Two samples from the same adapter on the same function differ in their conclusion or their guess at a mechanism, not in anything that says why one is right, and a few hundred such pairs are fitted fastest by a shift in the threshold. This is the result the `pr_reviews` literature pass reported for LoRA on this task. Preference pairs for it would need a rejected answer that is wrong for a reason visible in the prompt, at a scale well beyond what one adapter's disagreements on a thousand functions supply.
 
 ### Data for release
 

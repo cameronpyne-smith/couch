@@ -135,7 +135,6 @@ def report(name, rows):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=Path, default=OUTPUT)
-    parser.add_argument("--run")
     parser.add_argument("--model", default=MODEL)
     parser.add_argument("--bits", type=int, default=16, choices=(16, 4))
     parser.add_argument("--rank", default=16, type=int)
@@ -146,7 +145,7 @@ if __name__ == "__main__":
     parser.add_argument("--kind", choices=("real", "clean"))
     parser.add_argument("--mode", choices=("first", "verdict"), default="first", help="first: p(refuse) at the first answer token; verdict: generate, then read p(break) at the verdict line")
     parser.add_argument("--samples", type=int, default=0, help="verdict mode: extra sampled traces per example whose verdict probabilities are averaged into p_no")
-    parser.add_argument("--run-dir", type=Path, help="adapter run directory when it is not under --data/runs")
+    parser.add_argument("--run-dir", type=Path, help="adapter run directory; without it only the base model answers")
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--match", action="store_true", help="pick the adapter threshold that answers as many real examples as the base did")
     parser.add_argument("--skip-base", action="store_true", help="answer with the adapter only")
@@ -155,8 +154,6 @@ if __name__ == "__main__":
     device = "cuda"
     if args.run_dir:
         directory = args.run_dir
-    elif args.run:
-        directory = args.data / "runs" / args.run
     else:
         directory = args.data / "base" / args.model.split("/")[-1]
         directory.mkdir(parents=True, exist_ok=True)
@@ -173,12 +170,12 @@ if __name__ == "__main__":
     saved = args.data / "base" / args.model.split("/")[-1] / f"answers-base{base_suffix}.jsonl"
     if args.skip_base:
         base = []
-    elif (args.run or args.run_dir) and saved.exists() and not args.limit:
+    elif args.run_dir and saved.exists() and not args.limit:
         base = [json.loads(line) for line in saved.read_text().splitlines()]
         report("base", base)
     else:
         base = run("base", model, tokeniser, examples, device, directory / f"answers-base{base_suffix}.jsonl", args.threshold, args.max_new_tokens, args.mode)
-    if args.run or args.run_dir:
+    if args.run_dir:
         load_lora_adapter(model, directory / "adapter.pt")
         threshold = match_threshold(model, tokeniser, examples, device, base) if args.match else args.threshold
         adapter = run("adapter", model, tokeniser, examples, device, directory / f"answers-adapter{suffix}.jsonl", threshold, args.max_new_tokens, args.mode, args.samples)

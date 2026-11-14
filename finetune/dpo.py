@@ -119,7 +119,7 @@ def train(args):
         model.gradient_checkpointing_enable()
         model.enable_input_require_grads()
     optimiser = AdamW(trainable, weight_decay=0.0)
-    directory = make_directory(args.data / "runs")
+    directory = make_directory(args.output_dir)
     print("run", directory, "pairs", len(train_pairs), "held-out pairs", len(val_pairs), "optimiser steps", max_steps)
 
     reference_train = reference_log_probs(model, train_pairs, pad_id, device)
@@ -176,6 +176,7 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--model", type=str, default=MODEL)
     parser.add_argument("--bits", type=int, default=16, choices=(16, 4))

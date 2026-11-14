@@ -41,9 +41,9 @@ uv run python -m projects.pr_reviews.generator
 uv run python -m projects.pr_reviews.context            # diff-context prompts and containment labels
 uv run python -m projects.pr_reviews.context subset     # contained-with-diff train/val
 uv run python -m projects.pr_reviews.generate_eval --data <dir> --model Qwen/Qwen3.8-27B --bits 4
-uv run python -m finetune.sft --data <dir> --model Qwen/Qwen3.8-27B --bits 4 --checkpoint --epochs 1 --eval-interval 12
-uv run python -m projects.pr_reviews.generate_eval --data <dir> --run <ts> --model Qwen/Qwen3.8-27B --bits 4 --match
-uv run python -m projects.pr_reviews.judge <dir>/runs/<ts>/answers-adapter.jsonl
+uv run python -m finetune.sft --data <dir> --output-dir <runs> --model Qwen/Qwen3.8-27B --bits 4 --checkpoint --epochs 1 --eval-interval 12
+uv run python -m projects.pr_reviews.generate_eval --data <dir> --run-dir <runs>/<ts> --model Qwen/Qwen3.8-27B --bits 4 --match
+uv run python -m projects.pr_reviews.judge <runs>/<ts>/answers-adapter.jsonl
 uv run python -m projects.pr_reviews.packets --answers base=<answers> adapter=<answers>   # then readers append verdicts-*.jsonl
 uv run python -m projects.pr_reviews.verdicts
 uv run python -m projects.pr_reviews.verified

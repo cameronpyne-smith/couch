@@ -108,7 +108,7 @@ def train(args):
         model.gradient_checkpointing_enable()
         model.enable_input_require_grads()
     optimiser = AdamW(trainable, weight_decay=0.0)
-    directory = make_directory(args.data / "runs")
+    directory = make_directory(args.output_dir)
     print("run", directory, "optimiser steps", max_steps, "trainable", sum(p.numel() for p in trainable) / 1e6, "M")
 
     stats = []
@@ -171,6 +171,7 @@ if __name__ == "__main__":
     parser.add_argument("--alpha", type=int, default=32)
     parser.add_argument("--eval-interval", type=int, default=24)
     parser.add_argument("--data", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--model", type=str, default=MODEL)
     parser.add_argument("--bits", type=int, default=16, choices=(16, 4))
     parser.add_argument("--checkpoint", action="store_true")

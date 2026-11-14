@@ -36,8 +36,8 @@ uv run python -m projects.public_bugs.traces packets && uv run python -m project
 uv run python -m projects.public_bugs.traces checks --size 75
 # checkers append checks-*.jsonl
 uv run python -m projects.public_bugs.traces assemble && uv run python -m projects.public_bugs.traces sft
-uv run python -m finetune.sft --data <dataset>/sft --model Qwen/Qwen3.8-27B --bits 4 --checkpoint --epochs 1 --eval-interval 12
-uv run python -m projects.pr_reviews.generate_eval --data <dataset> --run-dir <dataset>/sft/runs/<ts> --model Qwen/Qwen3.8-27B --bits 4 --split val-full --mode verdict --max-new-tokens 400 --samples 4
+uv run python -m finetune.sft --data <dataset>/sft --output-dir <runs>/sft --model Qwen/Qwen3.8-27B --bits 4 --checkpoint --epochs 1 --eval-interval 12
+uv run python -m projects.pr_reviews.generate_eval --data <dataset> --run-dir <runs>/sft/<ts> --model Qwen/Qwen3.8-27B --bits 4 --split val-full --mode verdict --max-new-tokens 400 --samples 4
 ```
 
 ## Yield
@@ -58,7 +58,7 @@ The unreachable share is the honest cost of the method: in two cases out of five
 
 ## Results, 2026-11-09
 
-Run `sft/runs/20261109-152620`: 259 real + 125 clean traces, one epoch, 55 optimiser steps, 1,037 s at 485 tokens/s, peak 25.1 GB, held-out loss 1.300 → 0.905 nats per token. Both models generated 400 tokens with refusal allowed; the adapter's decision score is p(no break) at the verdict position averaged over the greedy answer and four samples at temperature 0.7; the base's is from its greedy answer alone. Every `Verdict: break` finding was read by an Opus subagent with the clone, judged `real` only when the defect exists with the mechanism stated, whether or not it is the one the later fix corrected.
+Run `sft/20261109-152620`: 259 real + 125 clean traces, one epoch, 55 optimiser steps, 1,037 s at 485 tokens/s, peak 25.1 GB, held-out loss 1.300 → 0.905 nats per token. Both models generated 400 tokens with refusal allowed; the adapter's decision score is p(no break) at the verdict position averaged over the greedy answer and four samples at temperature 0.7; the base's is from its greedy answer alone. Every `Verdict: break` finding was read by an Opus subagent with the clone, judged `real` only when the defect exists with the mechanism stated, whether or not it is the one the later fix corrected.
 
 ### Public val: 61 real, 39 clean, three held-out repositories
 
@@ -122,7 +122,7 @@ The content moved for the first time. On the public val the combined adapter nam
 
 ### Three times the traces, 2026-11-10
 
-The dataset was extended twice more in one morning (per-repository cap 300, then fifteen new repositories mined by two Opus subagents: efcore, aspnetcore, Orleans, akka.net, the MongoDB driver, Marten, Avalonia, maui, Swashbuckle, opentelemetry-dotnet, vite, typeorm, typescript-eslint, solid, and part of prisma and playwright). Writers marked 893 of 1,761 real packets unreachable (51%; 62% in the new repositories, which are UI and platform heavy), and checkers now skip rows that would be dropped anyway. Kept: 850 real + 870 clean. Public-only run `sft/runs/20261110-130024`: 759 real + 418 clean, 166 steps, held-out loss 0.993 → 0.877. Combined run `combined-traces/runs/20261110-144225`: 1,009 real + 543 clean, 229 steps, 6,076 s, held-out loss 1.339 → 0.921. Each adapter was evaluated only where it is meant to serve, and one Opus reader per set judged every `break` finding (`verdicts-public-r2-on-public.jsonl`, `verdicts-combined-r2-on-work.jsonl`).
+The dataset was extended twice more in one morning (per-repository cap 300, then fifteen new repositories mined by two Opus subagents: efcore, aspnetcore, Orleans, akka.net, the MongoDB driver, Marten, Avalonia, maui, Swashbuckle, opentelemetry-dotnet, vite, typeorm, typescript-eslint, solid, and part of prisma and playwright). Writers marked 893 of 1,761 real packets unreachable (51%; 62% in the new repositories, which are UI and platform heavy), and checkers now skip rows that would be dropped anyway. Kept: 850 real + 870 clean. Public-only run `sft/20261110-130024`: 759 real + 418 clean, 166 steps, held-out loss 0.993 → 0.877. Combined run `combined-traces/20261110-144225`: 1,009 real + 543 clean, 229 steps, 6,076 s, held-out loss 1.339 → 0.921. Each adapter was evaluated only where it is meant to serve, and one Opus reader per set judged every `break` finding (`verdicts-public-r2-on-public.jsonl`, `verdicts-combined-r2-on-work.jsonl`).
 
 | public val, 61 real + 39 clean | base | 286 real traces | 759 real traces |
 |---|---|---|---|

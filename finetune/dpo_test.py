@@ -5,7 +5,7 @@ import pytest
 import torch
 from torch import nn
 
-from finetune.dpo import dpo_loss, pair_log_probs, pair_loss, pairs_from_samples, reference_log_probs, sequence_log_probs
+from finetune.dpo import dpo_loss, evaluate_pairs, pair_log_probs, pair_loss, pairs_from_samples, reference_log_probs, sequence_log_probs
 from finetune.sft import IGNORE, collate, compute_loss
 
 
@@ -153,3 +153,13 @@ def test_a_gradient_step_on_pair_loss_lowers_it(stand_in, pairs):
         for parameter in stand_in.parameters():
             parameter -= 0.1 * parameter.grad
     assert pair_loss(stand_in, pairs[0], reference[0], 0.1, 0, "cpu") < before
+
+
+def test_evaluate_pairs_starts_at_log_2_and_counts_preferred_pairs(stand_in, pairs):
+    reference = reference_log_probs(stand_in, pairs, 0, "cpu")
+    stand_in.train()
+    loss, preferred = evaluate_pairs(stand_in, pairs, reference, 0.1, 0, "cpu")
+    assert loss == pytest.approx(math.log(2))
+    assert preferred == sum(bool(row[0] > row[1]) for row in reference) / len(pairs)
+    assert preferred == 0.5
+    assert stand_in.training

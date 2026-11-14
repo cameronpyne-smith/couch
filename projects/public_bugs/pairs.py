@@ -1,4 +1,5 @@
 import argparse
+import random
 from collections import Counter
 from pathlib import Path
 
@@ -20,13 +21,25 @@ def pair_rows(answers, examples):
     return rows
 
 
+def balance(rows, seed=0):
+    by_kind = {}
+    for row in rows:
+        by_kind.setdefault(row["kind"], []).append(row)
+    size = min(len(group) for group in by_kind.values())
+    kept = {id(row) for group in by_kind.values() for row in random.Random(seed).sample(group, size)}
+    return [row for row in rows if id(row) in kept]
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--answers", type=Path, required=True)
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--balance", action="store_true", help="keep the same number of pairs for each kind")
     args = parser.parse_args()
 
     rows = pair_rows(load_examples(args.answers), load_examples(args.data))
+    if args.balance:
+        rows = balance(rows)
     write_jsonl(args.out, rows)
     print(f"{len(rows)} pairs", dict(Counter(row["kind"] for row in rows)))

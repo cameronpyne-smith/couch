@@ -166,7 +166,7 @@ if __name__ == "__main__":
     if args.limit:
         examples = random.Random(0).sample(examples, args.limit)
 
-    base_suffix = suffix.replace(f"-s{args.samples}", "").replace(f"-{args.data.name}", "")
+    base_suffix = suffix.replace(f"-{args.data.name}", "")
     saved = args.data / "base" / args.model.split("/")[-1] / f"answers-base{base_suffix}.jsonl"
     if args.skip_base:
         base = []
@@ -174,7 +174,8 @@ if __name__ == "__main__":
         base = [json.loads(line) for line in saved.read_text().splitlines()]
         report("base", base)
     else:
-        base = run("base", model, tokeniser, examples, device, directory / f"answers-base{base_suffix}.jsonl", args.threshold, args.max_new_tokens, args.mode)
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        base = run("base", model, tokeniser, examples, device, directory / saved.name if args.limit else saved, args.threshold, args.max_new_tokens, args.mode, args.samples)
     if args.run_dir:
         load_lora_adapter(model, directory / "adapter.pt")
         threshold = match_threshold(model, tokeniser, examples, device, base) if args.match else args.threshold

@@ -2,6 +2,9 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+from optimiser import AdamW
 
 class Probe(nn.Module):
     def __init__(self, size):
@@ -20,11 +23,23 @@ def load_layer(path, layer):
     correct = torch.tensor(correct, dtype=torch.float32)
     return states[:, layer], correct
 
+def train_probe(probe, x, y, steps, learning_rate):
+    optimiser = AdamW(probe.parameters(), learning_rate, weight_decay=0.0)
+
+    for step in range(steps):
+        loss = F.binary_cross_entropy_with_logits(probe(x), y)
+        loss.backward()
+        optimiser.step()
+        optimiser.zero_grad()
+        if step % 20 == 0:
+            print(f"step: {step} - loss: {loss.item()}")
+    
+
 
 if __name__ == "__main__":
     x, y = load_layer(
         Path("~/training-runs/public-bugs/activations/base/train.pt").expanduser(), 32
     )
-    print(f"x.shape: {x.shape}, y.shape: {y.shape}, y.sum: {y.sum()}")
     probe = Probe(x.shape[1])
-    print(f"{probe(x).shape} | {probe(x)[:5]}")
+    train_probe(probe, x, y, 200, 0.001)
+

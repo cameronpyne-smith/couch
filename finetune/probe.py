@@ -17,14 +17,14 @@ class Probe(nn.Module):
         return self.linear(x).squeeze(-1)
 
 
-def load_layer(path, layer):
+def load(path):
     data = torch.load(path)
     states = data["states"]
     examples = data["examples"]
     correct = [float(example["kind"] == "real") for example in examples]
     correct = torch.tensor(correct, dtype=torch.float32)
     repos = [example["repo"] for example in examples] # Specific for this example, could be any suspect group
-    return states[:, layer], correct, repos
+    return states, correct, repos
 
 
 def within_group_auc(scores, y, groups):
@@ -42,7 +42,7 @@ def within_group_auc(scores, y, groups):
     return wins / pairs
 
 
-def train_probe(probe, x, y, steps, learning_rate):
+def train_probe(probe, x, y, steps, learning_rate, log=False):
     optimiser = AdamW(probe.parameters(), learning_rate, weight_decay=0.0)
 
     for step in range(steps):
@@ -50,7 +50,7 @@ def train_probe(probe, x, y, steps, learning_rate):
         loss.backward()
         optimiser.step()
         optimiser.zero_grad()
-        if step % 20 == 0:
+        if log and step % 20 == 0:
             print(f"step: {step} - loss: {loss.item()}")
 
 
@@ -63,22 +63,15 @@ def evaluate(probe, x, y):
 
 
 if __name__ == "__main__":
-    x, y, repos = load_layer(
-        Path("~/training-runs/public-bugs/activations/base/train.pt").expanduser(), 32
-    )
-    probe = Probe(x.shape[1])
-    train_probe(probe, x, y, 200, 0.001)
+    folder = Path("~/training-runs/public-bugs/activations/base").expanduser()
+    states, y, repos = load(folder / "train.pt")
+    states_val, y_val, repos_val = load(folder / "val.pt")
+    states_val_full, y_val_full, repos_val_full = load(folder / "val-full.pt")
 
-    x_val, y_val, repos_val = load_layer(
-        Path("~/training-runs/public-bugs/activations/base/val.pt").expanduser(), 32
-    )
-    with torch.no_grad():
-        within = within_group_auc(probe(x_val), y_val, repos_val)
-    print(f"train auc: {evaluate(probe, x, y):.3f} held-out auc: {evaluate(probe, x_val, y_val):.3f} held-out within-repository auc: {within:.3f}")
-
-    x_val_full, y_val_full, repos_val_full = load_layer(
-        Path("~/training-runs/public-bugs/activations/base/val-full.pt").expanduser(), 32
-    )
-    with torch.no_grad():
-        within_full = within_group_auc(probe(x_val_full), y_val_full, repos_val_full)
-    print(f"val-full auc: {evaluate(probe, x_val_full, y_val_full):.3f} val-full within-repository auc: {within_full:.3f}")
+    for layer in range(states.shape[1]):
+        probe = Probe(states.shape[2])
+        train_probe(probe, states[:, layer], y, 200, 0.001)
+        with torch.no_grad():
+            within = within_group_auc(probe(states_val[:, layer]), y_val, repos_val)
+            within_full = within_group_auc(probe(states_val_full[:, layer]), y_val_full, repos_val_full)
+        print(f"layer: {layer} - held-out within-repository auc: {within:.3f} - val-full within-repository auc: {within_full:.3f}")

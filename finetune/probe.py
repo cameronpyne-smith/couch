@@ -75,3 +75,10 @@ if __name__ == "__main__":
     with torch.no_grad():
         within = within_group_auc(probe(x_val), y_val, repos_val)
     print(f"train auc: {evaluate(probe, x, y):.3f} held-out auc: {evaluate(probe, x_val, y_val):.3f} held-out within-repository auc: {within:.3f}")
+
+    x_val_full, y_val_full, repos_val_full = load_layer(
+        Path("~/training-runs/public-bugs/activations/base/val-full.pt").expanduser(), 32
+    )
+    with torch.no_grad():
+        within_full = within_group_auc(probe(x_val_full), y_val_full, repos_val_full)
+    print(f"val-full auc: {evaluate(probe, x_val_full, y_val_full):.3f} val-full within-repository auc: {within_full:.3f}")

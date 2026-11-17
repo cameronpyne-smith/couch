@@ -23,7 +23,23 @@ def load_layer(path, layer):
     examples = data["examples"]
     correct = [float(example["kind"] == "real") for example in examples]
     correct = torch.tensor(correct, dtype=torch.float32)
-    return states[:, layer], correct
+    repos = [example["repo"] for example in examples] # Specific for this example, could be any suspect group
+    return states[:, layer], correct, repos
+
+
+def within_group_auc(scores, y, groups):
+    wins = 0.0
+    pairs = 0
+    for group in set(groups):
+        mask = torch.tensor([g == group for g in groups])
+        real = scores[mask & (y == 1)].tolist()
+        clean = scores[mask & (y != 1)].tolist()
+        count = len(real) * len(clean)
+        if count == 0:
+            continue
+        wins += auc(real, clean) * count
+        pairs += count
+    return wins / pairs
 
 
 def train_probe(probe, x, y, steps, learning_rate):
@@ -47,13 +63,15 @@ def evaluate(probe, x, y):
 
 
 if __name__ == "__main__":
-    x, y = load_layer(
+    x, y, repos = load_layer(
         Path("~/training-runs/public-bugs/activations/base/train.pt").expanduser(), 32
     )
     probe = Probe(x.shape[1])
     train_probe(probe, x, y, 200, 0.001)
 
-    x_val, y_val = load_layer(
+    x_val, y_val, repos_val = load_layer(
         Path("~/training-runs/public-bugs/activations/base/val.pt").expanduser(), 32
     )
-    print(f"train auc: {evaluate(probe, x, y):.3f} held-out auc: {evaluate(probe, x_val, y_val):.3f}")
+    with torch.no_grad():
+        within = within_group_auc(probe(x_val), y_val, repos_val)
+    print(f"train auc: {evaluate(probe, x, y):.3f} held-out auc: {evaluate(probe, x_val, y_val):.3f} held-out within-repository auc: {within:.3f}")

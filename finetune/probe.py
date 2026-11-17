@@ -95,26 +95,28 @@ def sweep(folder):
         print(f"layer: {layer} - held-out within-repository auc: {within:.3f} - val-full within-repository auc: {within_full:.3f}")
 
 
-def length_control(folder, prompts, layer):
+def length_control(folder, prompts, layers):
     states, y, _ = load(folder / "train.pt")
     states_val_full, y_val_full, repos = load(folder / "val-full.pt")
     lengths = prompt_lengths(prompts)
     assert len(lengths) == len(repos)
 
-    probe = Probe(states.shape[2])
-    train_probe(probe, states[:, layer], y, 200, 0.001)
-    with torch.no_grad():
-        scores = probe(states_val_full[:, layer]).tolist()
-
     pairs = group_pairs(y_val_full, repos)
     longer = [(real, clean) for real, clean in pairs if lengths[real] > lengths[clean]]
     shorter = [(real, clean) for real, clean in pairs if lengths[real] <= lengths[clean]]
-    print(f"pairs - all: {len(pairs)} - buggy longer: {len(longer)} - buggy shorter: {len(shorter)}")
-    print(f"length auc - all: {pair_auc(lengths, pairs):.3f}")
-    print(f"probe auc - all: {pair_auc(scores, pairs):.3f} - buggy longer: {pair_auc(scores, longer):.3f} - buggy shorter: {pair_auc(scores, shorter):.3f}")
+    print(f"{folder.name} - pairs - all: {len(pairs)} - buggy longer: {len(longer)} - buggy shorter: {len(shorter)}")
+    print(f"{folder.name} - length auc - all: {pair_auc(lengths, pairs):.3f}")
+
+    for layer in layers:
+        probe = Probe(states.shape[2])
+        train_probe(probe, states[:, layer], y, 200, 0.001)
+        with torch.no_grad():
+            scores = probe(states_val_full[:, layer]).tolist()
+        print(f"{folder.name} - layer: {layer} - probe auc - all: {pair_auc(scores, pairs):.3f} - buggy longer: {pair_auc(scores, longer):.3f} - buggy shorter: {pair_auc(scores, shorter):.3f}")
 
 
 if __name__ == "__main__":
-    folder = Path("~/training-runs/public-bugs/activations/base").expanduser()
+    activations = Path("~/training-runs/public-bugs/activations").expanduser()
     prompts = Path("~/training-data/code/public-bugs/dataset/val-full.jsonl").expanduser()
-    length_control(folder, prompts, 24)
+    for name in ["base", "adapter-20261113-173045"]:
+        length_control(activations / name, prompts, [16, 24, 32, 48, 64])

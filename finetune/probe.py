@@ -56,4 +56,4 @@ if __name__ == "__main__":
     x_val, y_val = load_layer(
         Path("~/training-runs/public-bugs/activations/base/val.pt").expanduser(), 32
     )
-    print(f"evaluate: {evaluate(probe, x_val, y_val)}")
+    print(f"train auc: {evaluate(probe, x, y):.3f} held-out auc: {evaluate(probe, x_val, y_val):.3f}")

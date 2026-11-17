@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import torch
@@ -25,6 +26,24 @@ def load(path):
     correct = torch.tensor(correct, dtype=torch.float32)
     repos = [example["repo"] for example in examples] # Specific for this example, could be any suspect group
     return states, correct, repos
+
+
+def prompt_lengths(path):
+    with open(path) as file:
+        return [len(json.loads(line)["prompt"]) for line in file]
+
+
+def group_pairs(y, groups):
+    return [
+        (real, clean)
+        for real in range(len(groups))
+        for clean in range(len(groups))
+        if y[real] == 1 and y[clean] != 1 and groups[real] == groups[clean]
+    ]
+
+
+def pair_auc(scores, pairs):
+    return sum(scores[real] > scores[clean] for real, clean in pairs) / len(pairs)
 
 
 def within_group_auc(scores, y, groups):
@@ -62,8 +81,7 @@ def evaluate(probe, x, y):
         return auc(real.tolist(), clean.tolist())
 
 
-if __name__ == "__main__":
-    folder = Path("~/training-runs/public-bugs/activations/base").expanduser()
+def sweep(folder):
     states, y, repos = load(folder / "train.pt")
     states_val, y_val, repos_val = load(folder / "val.pt")
     states_val_full, y_val_full, repos_val_full = load(folder / "val-full.pt")
@@ -75,3 +93,28 @@ if __name__ == "__main__":
             within = within_group_auc(probe(states_val[:, layer]), y_val, repos_val)
             within_full = within_group_auc(probe(states_val_full[:, layer]), y_val_full, repos_val_full)
         print(f"layer: {layer} - held-out within-repository auc: {within:.3f} - val-full within-repository auc: {within_full:.3f}")
+
+
+def length_control(folder, prompts, layer):
+    states, y, _ = load(folder / "train.pt")
+    states_val_full, y_val_full, repos = load(folder / "val-full.pt")
+    lengths = prompt_lengths(prompts)
+    assert len(lengths) == len(repos)
+
+    probe = Probe(states.shape[2])
+    train_probe(probe, states[:, layer], y, 200, 0.001)
+    with torch.no_grad():
+        scores = probe(states_val_full[:, layer]).tolist()
+
+    pairs = group_pairs(y_val_full, repos)
+    longer = [(real, clean) for real, clean in pairs if lengths[real] > lengths[clean]]
+    shorter = [(real, clean) for real, clean in pairs if lengths[real] <= lengths[clean]]
+    print(f"pairs - all: {len(pairs)} - buggy longer: {len(longer)} - buggy shorter: {len(shorter)}")
+    print(f"length auc - all: {pair_auc(lengths, pairs):.3f}")
+    print(f"probe auc - all: {pair_auc(scores, pairs):.3f} - buggy longer: {pair_auc(scores, longer):.3f} - buggy shorter: {pair_auc(scores, shorter):.3f}")
+
+
+if __name__ == "__main__":
+    folder = Path("~/training-runs/public-bugs/activations/base").expanduser()
+    prompts = Path("~/training-data/code/public-bugs/dataset/val-full.jsonl").expanduser()
+    length_control(folder, prompts, 24)

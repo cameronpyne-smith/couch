@@ -81,6 +81,22 @@ def evaluate(probe, x, y):
         return auc(real.tolist(), clean.tolist())
 
 
+def cross_validate(x, y, groups, folds, steps, learning_rate):
+    names = sorted(set(groups))
+    fold_of = {name: index % folds for index, name in enumerate(names)}
+    row_fold = torch.tensor([fold_of[group] for group in groups])
+    scores = torch.zeros(len(groups))
+
+    for fold in range(folds):
+        held_out = row_fold == fold
+        probe = Probe(x.shape[1])
+        train_probe(probe, x[~held_out], y[~held_out], steps, learning_rate)
+        with torch.no_grad():
+            scores[held_out] = probe(x[held_out])
+
+    return scores
+
+
 def sweep(folder):
     states, y, repos = load(folder / "train.pt")
     states_val, y_val, repos_val = load(folder / "val.pt")

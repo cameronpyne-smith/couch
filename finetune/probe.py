@@ -131,6 +131,15 @@ def length_control(folder, prompts, layers):
         print(f"{folder.name} - layer: {layer} - probe auc - all: {pair_auc(scores, pairs):.3f} - buggy longer: {pair_auc(scores, longer):.3f} - buggy shorter: {pair_auc(scores, shorter):.3f}")
 
 
+def centre_within(x, groups):
+    copy = x.clone()
+    for group in set(groups):
+        mask = torch.tensor([g == group for g in groups])
+        average = (mask.float() @ copy) / mask.sum()
+        copy[mask] -= average
+    return copy
+
+
 if __name__ == "__main__":
     activations = Path("~/training-runs/public-bugs/activations").expanduser()
     prompts = Path("~/training-data/code/public-bugs/dataset/val-full.jsonl").expanduser()

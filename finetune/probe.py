@@ -139,13 +139,23 @@ def centre_within(x, groups):
         copy[mask] -= average
     return copy
 
-def remove_trend(x: torch.Tensor, values) -> torch.Tensor:
+def trend_slopes(x, values):
     v = values - values.mean()
     top = v @ x
     bottom = v @ v
     slopes = top / bottom
+    return slopes
+
+def subtract_trend(x, values, slopes):
+    v = values - values.mean()
     trend = torch.outer(v, slopes)
     return x - trend
+
+
+def remove_trend(x: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
+    slopes = trend_slopes(x, values)
+    return subtract_trend(x, values, slopes)
+
 
 
 if __name__ == "__main__":

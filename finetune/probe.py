@@ -139,6 +139,14 @@ def centre_within(x, groups):
         copy[mask] -= average
     return copy
 
+def remove_trend(x: torch.Tensor, values) -> torch.Tensor:
+    v = values - values.mean()
+    top = v @ x
+    bottom = v @ v
+    slopes = top / bottom
+    trend = torch.outer(v, slopes)
+    return x - trend
+
 
 if __name__ == "__main__":
     activations = Path("~/training-runs/public-bugs/activations").expanduser()

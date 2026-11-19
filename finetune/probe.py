@@ -81,7 +81,7 @@ def evaluate(probe, x, y):
         return auc(real.tolist(), clean.tolist())
 
 
-def cross_validate(x, y, groups, folds, steps, learning_rate):
+def cross_validate(x, y, groups, folds, steps, learning_rate, values=None):
     names = sorted(set(groups))
     fold_of = {name: index % folds for index, name in enumerate(names)}
     row_fold = torch.tensor([fold_of[group] for group in groups])
@@ -89,10 +89,20 @@ def cross_validate(x, y, groups, folds, steps, learning_rate):
 
     for fold in range(folds):
         held_out = row_fold == fold
+        x_train = x[~held_out]
+        x_held_out = x[held_out]
+        if values is not None:
+            groups_train = [group for group, held in zip(groups, held_out) if not held]
+            x_train = centre_within(x_train, groups_train)
+            values_train = centre_within(values[~held_out], groups_train)
+            slopes = trend_slopes(x_train, values_train)
+            x_train = subtract_trend(x_train, values_train, slopes)
+            x_held_out = subtract_trend(x_held_out, values[held_out], slopes)
+
         probe = Probe(x.shape[1])
-        train_probe(probe, x[~held_out], y[~held_out], steps, learning_rate)
+        train_probe(probe, x_train, y[~held_out], steps, learning_rate)
         with torch.no_grad():
-            scores[held_out] = probe(x[held_out])
+            scores[held_out] = probe(x_held_out)
 
     return scores
 
@@ -158,8 +168,24 @@ def remove_trend(x: torch.Tensor, values: torch.Tensor) -> torch.Tensor:
 
 
 
+def erasure_control(folder, prompts, layers):
+    states, y, repos = load(folder / "train.pt")
+    values = torch.tensor(prompt_lengths(prompts), dtype=torch.float32).log()
+    assert len(values) == len(repos)
+    pairs = group_pairs(y, repos)
+
+    length_only = values[:, None]
+    plain = cross_validate(length_only, y, repos, 5, 2000, 0.05)
+    erased = cross_validate(length_only, y, repos, 5, 2000, 0.05, values)
+    print(f"{folder.name} - length column - plain: {pair_auc(plain.tolist(), pairs):.3f} - erased: {pair_auc(erased.tolist(), pairs):.3f}")
+
+    for layer in layers:
+        plain = cross_validate(states[:, layer], y, repos, 5, 200, 0.001)
+        erased = cross_validate(states[:, layer], y, repos, 5, 200, 0.001, values)
+        print(f"{folder.name} - layer: {layer} - held-out-repository auc - plain: {pair_auc(plain.tolist(), pairs):.3f} - repository and length erased: {pair_auc(erased.tolist(), pairs):.3f}")
+
+
 if __name__ == "__main__":
     activations = Path("~/training-runs/public-bugs/activations").expanduser()
-    prompts = Path("~/training-data/code/public-bugs/dataset/val-full.jsonl").expanduser()
-    for name in ["base", "adapter-20261113-173045"]:
-        length_control(activations / name, prompts, [16, 24, 32, 48, 64])
+    prompts = Path("~/training-data/code/public-bugs/dataset/sft/train.jsonl").expanduser()
+    erasure_control(activations / "base", prompts, [1, 24, 48, 64])

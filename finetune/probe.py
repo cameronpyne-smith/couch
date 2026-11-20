@@ -161,6 +161,9 @@ def column_stats(x):
     std = torch.std(x, dim=0).clamp(min=1e-6)
     return mean, std
 
+def standardise(x, mean, std):
+    return (x - mean) / std
+
 def subtract_trend(x, values, slopes):
     v = values - values.mean()
     trend = torch.outer(v, slopes)

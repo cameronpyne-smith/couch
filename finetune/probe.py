@@ -156,6 +156,11 @@ def trend_slopes(x, values):
     slopes = top / bottom
     return slopes
 
+def column_stats(x):
+    mean = torch.mean(x, dim=0)
+    std = torch.std(x, dim=0).clamp(min=1e-6)
+    return mean, std
+
 def subtract_trend(x, values, slopes):
     v = values - values.mean()
     trend = torch.outer(v, slopes)

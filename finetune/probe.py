@@ -61,8 +61,8 @@ def within_group_auc(scores, y, groups):
     return wins / pairs
 
 
-def train_probe(probe, x, y, steps, learning_rate, log=False):
-    optimiser = AdamW(probe.parameters(), learning_rate, weight_decay=0.0)
+def train_probe(probe, x, y, steps, learning_rate, weight_decay=0.0, log=False):
+    optimiser = AdamW(probe.parameters(), learning_rate, weight_decay=weight_decay)
 
     for step in range(steps):
         loss = F.binary_cross_entropy_with_logits(probe(x), y)
@@ -81,7 +81,7 @@ def evaluate(probe, x, y):
         return auc(real.tolist(), clean.tolist())
 
 
-def cross_validate(x, y, groups, folds, steps, learning_rate, values=None):
+def cross_validate(x, y, groups, folds, steps, learning_rate, weight_decay, values=None):
     names = sorted(set(groups))
     fold_of = {name: index % folds for index, name in enumerate(names)}
     row_fold = torch.tensor([fold_of[group] for group in groups])
@@ -99,8 +99,11 @@ def cross_validate(x, y, groups, folds, steps, learning_rate, values=None):
             x_train = subtract_trend(x_train, values_train, slopes)
             x_held_out = subtract_trend(x_held_out, values[held_out], slopes)
 
+        mean, std = column_stats(x_train)            
+        x_train = standardise(x_train, mean, std)
+        x_held_out = standardise(x_held_out, mean, std)
         probe = Probe(x.shape[1])
-        train_probe(probe, x_train, y[~held_out], steps, learning_rate)
+        train_probe(probe, x_train, y[~held_out], steps, learning_rate, weight_decay)
         with torch.no_grad():
             scores[held_out] = probe(x_held_out)
 
@@ -183,15 +186,17 @@ def erasure_control(folder, prompts, layers):
     pairs = group_pairs(y, repos)
 
     length_only = values[:, None]
-    plain = cross_validate(length_only, y, repos, 5, 2000, 0.05)
-    erased = cross_validate(length_only, y, repos, 5, 2000, 0.05, values)
+    learning_rate = 0.0001
+    weight_decay = 1000
+    steps = 200
+    plain = cross_validate(length_only, y, repos, 5, 2000, 0.05, 0.0)
+    erased = cross_validate(length_only, y, repos, 5, 2000, 0.05, 0.0, values=values)
     print(f"{folder.name} - length column - plain: {pair_auc(plain.tolist(), pairs):.3f} - erased: {pair_auc(erased.tolist(), pairs):.3f}")
 
     for layer in layers:
-        plain = cross_validate(states[:, layer], y, repos, 5, 200, 0.001)
-        erased = cross_validate(states[:, layer], y, repos, 5, 200, 0.001, values)
+        plain = cross_validate(states[:, layer], y, repos, 5, steps, learning_rate, weight_decay)
+        erased = cross_validate(states[:, layer], y, repos, 5, steps, learning_rate, weight_decay, values=values)
         print(f"{folder.name} - layer: {layer} - held-out-repository auc - plain: {pair_auc(plain.tolist(), pairs):.3f} - repository and length erased: {pair_auc(erased.tolist(), pairs):.3f}")
-
 
 if __name__ == "__main__":
     activations = Path("~/training-runs/public-bugs/activations").expanduser()

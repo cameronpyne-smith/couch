@@ -198,7 +198,35 @@ def erasure_control(folder, prompts, layers):
         erased = cross_validate(states[:, layer], y, repos, 5, steps, learning_rate, weight_decay, values=values)
         print(f"{folder.name} - layer: {layer} - held-out-repository auc - plain: {pair_auc(plain.tolist(), pairs):.3f} - repository and length erased: {pair_auc(erased.tolist(), pairs):.3f}")
 
+
+def comparison(folders, prompts, layers):
+    learning_rate = 0.0001
+    weight_decay = 1000
+    steps = 200
+    values = torch.tensor(prompt_lengths(prompts), dtype=torch.float32).log()
+    for folder in folders:
+        states_train, y_train, _ = load(folder / "train.pt")
+        states_val, y_val, repos_val = load(folder / "val-full.pt")
+        assert len(values) == len(repos_val)
+        pairs = group_pairs(y_val, repos_val)
+
+        for layer in layers:
+            mean, std = column_stats(states_train[:, layer])
+            x_train = standardise(states_train[:, layer], mean, std)
+            x_val = standardise(states_val[:, layer], mean, std)
+            probe = Probe(x_train.shape[1])
+            train_probe(probe, x_train, y_train, steps, learning_rate, weight_decay=weight_decay)
+            with torch.no_grad():
+                scores = probe(x_val)
+            without_length = remove_trend(scores[:, None], values)[:, 0]
+            print(f"{folder.name} - layer: {layer} - within-repository auc: {pair_auc(scores.tolist(), pairs):.3f} - length removed: {pair_auc(without_length.tolist(), pairs):.3f}")
+
+
 if __name__ == "__main__":
-    activations = Path("~/training-runs/public-bugs/activations").expanduser()
-    prompts = Path("~/training-data/code/public-bugs/dataset/sft/train.jsonl").expanduser()
-    erasure_control(activations / "base", prompts, [1, 24, 48, 64])
+    runs = Path("~/training-runs/public-bugs").expanduser()
+    dataset = Path("~/training-data/code/public-bugs/dataset").expanduser()
+    activations = runs / "activations"
+    halves = runs / "layer-halves" / "activations"
+    erasure_control(activations / "base", dataset / "sft" / "train.jsonl", [1, 24, 48, 64])
+    folders = [activations / "base", activations / "adapter-20261113-173045", halves / "adapter-20261120-122630", halves / "adapter-20261120-140704"]
+    comparison(folders, dataset / "val-full.jsonl", [1, 16, 32, 48, 64])

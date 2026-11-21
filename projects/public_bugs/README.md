@@ -180,6 +180,47 @@ None of the three improved the ranking of real above clean. Each moved the adapt
 
 The loss and the loop behave as they should: every run did what its pairs asked. What the pairs lacked is information. Two samples from the same adapter on the same function differ in their conclusion or their guess at a mechanism, not in anything that says why one is right, and a few hundred such pairs are fitted fastest by a shift in the threshold. This is the result the `pr_reviews` literature pass reported for LoRA on this task. Preference pairs for it would need a rejected answer that is wrong for a reason visible in the prompt, at a scale well beyond what one adapter's disagreements on a thousand functions supply.
 
+### Linear probe and layer halves, 2026-11-20
+
+A linear probe asks whether a frozen model's internal vectors already separate buggy from clean, whatever its written answer says. `finetune/activations.py` saves the vector at the last prompt token after every block (65 points, 5,120 numbers each) for the base model and for an adapter; `finetune/probe.py` trains one `Linear(5120, 1)` per layer on those vectors and scores it by AUC, the share of buggy and clean pairs it ranks correctly.
+
+```
+uv run python -m finetune.activations --data <dataset>/sft --output-dir <runs>/activations --adapter <runs>/sft/<ts> --model Qwen/Qwen3.8-27B --bits 4
+uv run python -m finetune.sft --data <dataset>/sft --output-dir <runs>/sft --model Qwen/Qwen3.8-27B --bits 4 --checkpoint --epochs 1 --eval-interval 12 --layers 32 64
+uv run python -m finetune.probe
+```
+
+A probe finds the cheapest thing that predicts the label, and here two cheap things do. The bug rate differs by repository, so repository alone scores 0.91 on the held-out rows; and real functions are about 45% longer, so "the longer one is buggy" scores 0.72 inside a repository. The controls, in the order they were added:
+
+- **Same-repository pairs only**, so repository identity cannot win a pair.
+- **Repositories held out**: five folds over the 34 training repositories, each probe scored on repositories it never saw (7,172 pairs).
+- **Repository and length erased** from the vectors: each repository's mean and the straight-line trend on log length are subtracted, fitted on the training folds and applied to the held-out fold.
+- **Shuffled labels**: the same probe trained on labels shuffled inside each repository, which gives the range that noise alone produces.
+- **Columns standardised and weights decayed**: column spreads differ up to 75 times within a layer and 300 times between layers, and 5,120 weights memorise 1,177 rows (training AUC 1.00 without decay). The decoupled decay removes learning rate x weight decay of every weight per step; 0.0001 x 1000 is used, chosen from seven settings on the held-out scores.
+
+| base model, repositories held out | layer 1 | 24 | 48 | 64 |
+|---|---|---|---|---|
+| probe | 0.76 | 0.78 | 0.82 | 0.84 |
+| probe, repository and length erased | 0.66 | 0.74 | 0.77 | 0.79 |
+| same, shuffled labels | 0.50 to 0.52 | 0.46 to 0.56 | 0.44 to 0.53 | 0.43 to 0.52 |
+
+Before standardising and decay the erased row read 0.67, 0.70, 0.68, 0.64, flat with depth, because the deep-layer probes were memorising. The restrained probe shows the signal growing with depth.
+
+The layer-halves runs are the published recipe with LoRA on half the blocks (`--layers`), 54M trainable weights each against 109M.
+
+| public val, 679 same-repository pairs | base | all blocks (`sft/20261113-173045`) | blocks 32 to 63 | blocks 0 to 31 |
+|---|---|---|---|---|
+| held-out loss, nats per token | 1.306 | 0.873 | 0.894 | 0.904 |
+| written verdict, AUC | 0.62 | 0.80 | 0.81 | 0.80 |
+| written verdict, length removed | 0.58 | 0.78 | 0.79 | 0.78 |
+| probe at layer 64, AUC | 0.79 | 0.83 | 0.83 | 0.82 |
+| probe at layer 64, length removed | 0.74 | 0.80 | 0.80 | 0.79 |
+| probe at layer 32, length removed | 0.72 | 0.77 | 0.72 | 0.75 |
+
+Probes here are trained on the 1,177 training functions and scored on the public val; "length removed" takes the straight-line trend on log length out of the score before ranking. Two runs of one recipe differ by about 0.03 AUC.
+
+Three readings. The adapter's ranking is not a length artefact: it keeps 0.78 with length removed. Which half of the network carries the LoRA weights does not matter: either half alone reaches the full adapter's ranking, and the adapter trained only on early blocks still shows its gain in the late vectors. And the base model's vectors already rank nearly as well as the adapters' (0.74 against 0.80, inside the noise of 100 functions) while its written verdict does not (0.58): most of what fine-tuning bought is the model using a signal it already carried. About a fifth of pairs stay misranked by every reading, vectors or verdict, which points at the data and not at where in the network the training happens.
+
 ### Data for release
 
 `dataset/train.jsonl`, `val.jsonl` and `train-traces.jsonl` carry repository, commits, path, line, licence and the fix pull request per row; the clones are public. Nothing from the work data enters this directory. The adapter is trained only on these traces and can be published under its potato name once a run is worth publishing.

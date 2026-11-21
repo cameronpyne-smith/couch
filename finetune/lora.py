@@ -30,10 +30,16 @@ class LoRALinear(nn.Module):
         return self.base
 
 
-def apply_lora(model, rank, alpha, match):
+def layer_index(name):
+    return next((int(part) for part in name.split(".") if part.isdigit()), None)
+
+
+def apply_lora(model, rank, alpha, match, layers=None):
     model.requires_grad_(False) # Freeze model
 
     def is_match(name, module):
+        if layers is not None and layer_index(name) not in layers:
+            return False
         return isinstance(module, (Linear, nn.Linear)) and name.rsplit(".", 1)[-1] in match
 
     pairs = [(name, module) for name, module in model.named_modules() if is_match(name, module)]

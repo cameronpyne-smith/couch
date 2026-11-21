@@ -57,6 +57,15 @@ def test_apply_lora_wraps_only_matched_linears(model):
     assert isinstance(block.mlp.project_back, Linear)
     assert sum(isinstance(m, LoRALinear) for m in model.modules()) == 4
 
+def test_apply_lora_wraps_only_chosen_layers(model):
+    apply_lora(model, rank=2, alpha=2, match=["qkv_projection", "expand"], layers=[1])
+    first = cast(Block, model.blocks[0])
+    second = cast(Block, model.blocks[1])
+    assert isinstance(first.attention.qkv_projection, Linear)
+    assert isinstance(second.attention.qkv_projection, LoRALinear)
+    assert sum(isinstance(m, LoRALinear) for m in model.modules()) == 2
+
+
 def test_only_lora_params_are_trainable_and_returned(model):
     output = apply_lora(model, rank=2, alpha=2, match=["qkv_projection", "expand"])
     assert len(output) == 8 

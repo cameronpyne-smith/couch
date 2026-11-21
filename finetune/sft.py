@@ -52,9 +52,9 @@ def collate(batch, pad_id):
     return torch.tensor(input_ids), torch.tensor(attention_mask), torch.tensor(labels)
 
 
-def load_model(rank, alpha, device="cuda", name=MODEL, bits=16):
+def load_model(rank, alpha, device="cuda", name=MODEL, bits=16, layers=None):
     model = load_base(name, bits, device)
-    trainable = apply_lora(model, rank, alpha, PROJECTIONS)
+    trainable = apply_lora(model, rank, alpha, PROJECTIONS, layers)
     return model, trainable
 
 def load_base(name, bits, device="cuda"):
@@ -103,7 +103,8 @@ def train(args):
     batches_per_epoch = len(make_batches(train_encoded, args.max_tokens, 0))
     max_steps = args.epochs * -(-batches_per_epoch // args.accumulation)
 
-    model, trainable = load_model(args.rank, args.alpha, device, args.model, args.bits)
+    layers = range(*args.layers) if args.layers else None
+    model, trainable = load_model(args.rank, args.alpha, device, args.model, args.bits, layers)
     if args.checkpoint:
         model.gradient_checkpointing_enable()
         model.enable_input_require_grads()
@@ -175,5 +176,6 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default=MODEL)
     parser.add_argument("--bits", type=int, default=16, choices=(16, 4))
     parser.add_argument("--checkpoint", action="store_true")
+    parser.add_argument("--layers", type=int, nargs=2, metavar=("FIRST", "STOP"), help="train LoRA only on blocks FIRST up to but not including STOP; all blocks without it")
 
     train(parser.parse_args())

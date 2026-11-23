@@ -9,6 +9,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from finetune.lora import apply_lora, save_lora_adapter
@@ -17,6 +18,7 @@ from train import get_learning_rate, log_losses, make_directory
 
 MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
 IGNORE = -100
+LOSS_CHUNK = 512
 PROJECTIONS = ("q_proj", "k_proj", "v_proj", "o_proj", "in_proj_qkv", "in_proj_z", "out_proj", "gate_proj", "up_proj", "down_proj")
 
 
@@ -71,12 +73,21 @@ def to_device(batch, pad_id, device):
     return tuple(tensor.to(device) for tensor in collate(batch, pad_id))
 
 
+def chunk_loss(head, states, targets):
+    return F.cross_entropy(head(states).float(), targets, reduction="sum")
+
+
+def token_loss(head, states, targets, chunk=LOSS_CHUNK):
+    starts = range(0, len(targets), chunk)
+    losses = (checkpoint(chunk_loss, head, states[start : start + chunk], targets[start : start + chunk], use_reentrant=False) for start in starts)
+    return sum(losses, torch.zeros((), device=states.device))
+
+
 def compute_loss(model, input_ids, attention_mask, labels):
     hidden = model.model(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
     targets = labels[:, 1:]
     keep = targets != IGNORE
-    logits = model.lm_head(hidden[:, :-1][keep]).float()
-    return F.cross_entropy(logits, targets[keep], reduction="sum")
+    return token_loss(model.lm_head, hidden[:, :-1][keep], targets[keep])
 
 
 def labelled_tokens(batches):

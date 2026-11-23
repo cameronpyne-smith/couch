@@ -103,6 +103,8 @@ def train(
     output_dir="./runs",
     config=None,
     input_data_path=DEFAULT_DATA_PATH,
+    learning_rate=1e-3,
+    warm_up_steps=100,
 ):
     directory = make_directory(output_dir)
     data_path = Path(input_data_path)
@@ -115,7 +117,13 @@ def train(
     stats = []
     lowest_validation_average = float("inf")
     for step in range(max_steps):
-        lr = get_learning_rate(step, max_steps=max_steps)
+        lr = get_learning_rate(
+            step,
+            warm_up_steps=warm_up_steps,
+            max_steps=max_steps,
+            max_learning_rate=learning_rate,
+            min_learning_rate=learning_rate / 10,
+        )
         if step % eval_interval == 0:
             validation_average = estimate_loss(
                 model, validation, config, batch_size, device
@@ -161,5 +169,7 @@ if __name__ == "__main__":
     parser.add_argument("--input-data-path", default=DEFAULT_DATA_PATH, type=str)
     parser.add_argument("--output-dir", default="./runs", type=str)
     parser.add_argument("--max-steps", default=5000, type=int)
+    parser.add_argument("--learning-rate", default=1e-3, type=float)
+    parser.add_argument("--warm-up-steps", default=100, type=int)
     args = parser.parse_args()
-    train(input_data_path=args.input_data_path, output_dir=args.output_dir, max_steps=args.max_steps)
+    train(input_data_path=args.input_data_path, output_dir=args.output_dir, max_steps=args.max_steps, learning_rate=args.learning_rate, warm_up_steps=args.warm_up_steps)

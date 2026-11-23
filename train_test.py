@@ -1,3 +1,6 @@
+import inspect
+import json
+import math
 from functools import partial
 
 import pytest
@@ -125,6 +128,36 @@ def test_train_saves(tmp_path):
     assert len(list(tmp_path.glob("*/checkpoint.pt"))) == 1
     checkpoint = torch.load(list(tmp_path.glob("*/checkpoint.pt"))[0])
     assert checkpoint["step"] < max_steps
+
+
+def test_train_follows_the_learning_rate_and_warm_up_it_is_given(tmp_path):
+    torch.manual_seed(0)
+    config = ModelConfig(
+        vocab_size=65,
+        n_layer=2,
+        n_head=2,
+        n_embedding_dimension=64,
+        block_size=64,
+    )
+    train(
+        config=config,
+        max_steps=6,
+        eval_interval=1,
+        device="cpu",
+        output_dir=tmp_path,
+        learning_rate=0.5,
+        warm_up_steps=2,
+    )
+    losses = json.loads(next(tmp_path.glob("*/losses.json")).read_text())
+    rates = [entry["lr"] for entry in losses]
+    assert rates[0] == pytest.approx(0.25)
+    assert rates[2] == pytest.approx(0.5)
+    assert rates[-1] == pytest.approx(0.05 + 0.45 * (1 + math.cos(math.pi * 3 / 4)) / 2)
+
+
+def test_train_keeps_its_learning_rate_by_default():
+    assert inspect.signature(train).parameters["learning_rate"].default == 1e-3
+    assert inspect.signature(train).parameters["warm_up_steps"].default == 100
 
 
 def test_save_checkpoint_then_load_model_returns_input(tmp_path):

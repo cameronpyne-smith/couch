@@ -163,6 +163,10 @@ def train(args):
             step += 1
             if step % args.eval_interval == 0:
                 log(lr)
+        if args.keep_epochs:
+            epoch_directory = directory / f"epoch-{epoch + 1}"
+            epoch_directory.mkdir()
+            save_lora_adapter(model, epoch_directory)
     if step % args.eval_interval:
         log(lr)
 
@@ -187,6 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default=MODEL)
     parser.add_argument("--bits", type=int, default=16, choices=(16, 4))
     parser.add_argument("--checkpoint", action="store_true")
+    parser.add_argument("--keep-epochs", action="store_true", help="also save the adapter at the end of every epoch, in epoch-N folders")
     parser.add_argument("--layers", type=int, nargs=2, metavar=("FIRST", "STOP"), help="train LoRA only on blocks FIRST up to but not including STOP; all blocks without it")
 
     train(parser.parse_args())
